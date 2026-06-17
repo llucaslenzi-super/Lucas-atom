@@ -99,7 +99,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://api.z-api.io/instances/INSTANCE_ID_AQUI/token/TOKEN_AQUI/send-text",
+        "url": "=https://api.z-api.io/instances/3F4CA04EC2A9F2C35C05CE717FF40C71/token/DA5E5295DD430239591BB4B4/send-text",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
