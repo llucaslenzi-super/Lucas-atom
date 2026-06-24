@@ -39,47 +39,18 @@
           },
           "conditions": [
             {
-              "id": "cond-nao-ok",
-              "leftValue": "={{ $json.enviado }}",
-              "rightValue": "OK",
+              "id": "cond-envio",
+              "leftValue": "={{ $json.envio }}",
+              "rightValue": "N",
               "operator": {
                 "type": "string",
                 "operation": "notEquals"
               }
             },
             {
-              "id": "cond-nao-nao",
+              "id": "cond-enviado",
               "leftValue": "={{ $json.enviado }}",
-              "rightValue": "NAO ENVIADO",
-              "operator": {
-                "type": "string",
-                "operation": "notEquals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "f3333333-3333-3333-3333-333333333333",
-      "name": "Filter Nao Processado",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [680, 300]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": false,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "cond-envio",
-              "leftValue": "={{ $json.envio }}",
-              "rightValue": "N",
+              "rightValue": "OK",
               "operator": {
                 "type": "string",
                 "operation": "notEquals"
@@ -108,22 +79,22 @@
         },
         "options": {}
       },
-      "id": "f4444444-4444-4444-4444-444444444444",
-      "name": "Filter Pode Enviar",
+      "id": "f3333333-3333-3333-3333-333333333333",
+      "name": "Filter",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [900, 300]
+      "position": [680, 300]
     },
     {
       "parameters": {
         "batchSize": 1,
         "options": {}
       },
-      "id": "f5555555-5555-5555-5555-555555555555",
-      "name": "Loop OK",
+      "id": "f4444444-4444-4444-4444-444444444444",
+      "name": "Loop",
       "type": "n8n-nodes-base.splitInBatches",
       "typeVersion": 3,
-      "position": [1120, 200]
+      "position": [900, 300]
     },
     {
       "parameters": {
@@ -144,22 +115,22 @@
         "jsonBody": "={\n  \"phone\": \"{{ $json.telefone_digitos }}\",\n  \"message\": {{ JSON.stringify($json.mensagem) }}\n}",
         "options": {}
       },
-      "id": "f6666666-6666-6666-6666-666666666666",
+      "id": "f5555555-5555-5555-5555-555555555555",
       "name": "Z-API Send Text",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 200]
+      "position": [1120, 300]
     },
     {
       "parameters": {
         "amount": 4,
         "unit": "seconds"
       },
-      "id": "f7777777-7777-7777-7777-777777777777",
+      "id": "f6666666-6666-6666-6666-666666666666",
       "name": "Wait",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [1560, 200]
+      "position": [1340, 300]
     },
     {
       "parameters": {
@@ -177,58 +148,18 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "codcliente": "={{ $('Loop OK').item.json.codcliente }}",
+            "codcliente": "={{ $('Loop').item.json.codcliente }}",
             "enviado": "OK"
           },
           "matchingColumns": ["codcliente"]
         },
         "options": {}
       },
-      "id": "f8888888-8888-8888-8888-888888888888",
-      "name": "Mark OK",
+      "id": "f7777777-7777-7777-7777-777777777777",
+      "name": "Mark Enviado",
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.5,
-      "position": [1780, 200]
-    },
-    {
-      "parameters": {
-        "batchSize": 1,
-        "options": {}
-      },
-      "id": "f9999999-9999-9999-9999-999999999999",
-      "name": "Loop NAO",
-      "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
-      "position": [1120, 420]
-    },
-    {
-      "parameters": {
-        "operation": "update",
-        "documentId": {
-          "__rl": true,
-          "value": "1BfHsVRx6dnrbNhaMTPayz8Lfp4q06AJPu5HoRnGNed4",
-          "mode": "id"
-        },
-        "sheetName": {
-          "__rl": true,
-          "value": "dados",
-          "mode": "name"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "codcliente": "={{ $('Loop NAO').item.json.codcliente }}",
-            "enviado": "NAO ENVIADO"
-          },
-          "matchingColumns": ["codcliente"]
-        },
-        "options": {}
-      },
-      "id": "faaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-      "name": "Mark NAO ENVIADO",
-      "type": "n8n-nodes-base.googleSheets",
-      "typeVersion": 4.5,
-      "position": [1340, 420]
+      "position": [1560, 300]
     }
   ],
   "connections": {
@@ -236,21 +167,15 @@
       "main": [[{ "node": "Read Sheets", "type": "main", "index": 0 }]]
     },
     "Read Sheets": {
-      "main": [[{ "node": "Filter Nao Processado", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Filter", "type": "main", "index": 0 }]]
     },
-    "Filter Nao Processado": {
+    "Filter": {
       "main": [
-        [{ "node": "Filter Pode Enviar", "type": "main", "index": 0 }],
+        [{ "node": "Loop", "type": "main", "index": 0 }],
         []
       ]
     },
-    "Filter Pode Enviar": {
-      "main": [
-        [{ "node": "Loop OK", "type": "main", "index": 0 }],
-        [{ "node": "Loop NAO", "type": "main", "index": 0 }]
-      ]
-    },
-    "Loop OK": {
+    "Loop": {
       "main": [
         [],
         [{ "node": "Z-API Send Text", "type": "main", "index": 0 }]
@@ -260,19 +185,10 @@
       "main": [[{ "node": "Wait", "type": "main", "index": 0 }]]
     },
     "Wait": {
-      "main": [[{ "node": "Mark OK", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Mark Enviado", "type": "main", "index": 0 }]]
     },
-    "Mark OK": {
-      "main": [[{ "node": "Loop OK", "type": "main", "index": 0 }]]
-    },
-    "Loop NAO": {
-      "main": [
-        [],
-        [{ "node": "Mark NAO ENVIADO", "type": "main", "index": 0 }]
-      ]
-    },
-    "Mark NAO ENVIADO": {
-      "main": [[{ "node": "Loop NAO", "type": "main", "index": 0 }]]
+    "Mark Enviado": {
+      "main": [[{ "node": "Loop", "type": "main", "index": 0 }]]
     }
   },
   "settings": {
