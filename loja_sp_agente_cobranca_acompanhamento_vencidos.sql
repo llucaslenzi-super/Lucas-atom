@@ -5,10 +5,11 @@
 -- Régua: saldo > 0, tipo IN (10, 80, 3, 7, 68, 5),
 --        vencidos entre 2 e 180 dias.
 -- Ciclos: 1 = 2 dias / 2 = 3-10 / 3 = 11-180.
--- Ordenação das linhas na mensagem:
---   1) tipo_doc_nome ASC (BOLETO < CHEQUE < CREDIÁRIO < PIX)
---   2) datavencimento ASC  (estritamente cronológico dentro do tipo)
---   3) documento ASC       (só desempate quando datas iguais)
+-- Formato da mensagem:
+--   *CATEGORIA:*
+--   venc. dd/mm/yyyy / Valor: R$ ... / Doc.NNN (linhas em ordem cronológica ASC)
+--   ...linha branca...
+--   *PROXIMA_CATEGORIA:* ...
 
 WITH
 params AS (SELECT CURRENT_DATE AS data_execucao),
@@ -50,15 +51,12 @@ linhas AS (
          WHEN t.dias_vencido BETWEEN 3 AND 10 THEN 2
          ELSE 3 END AS ciclo,
     CASE
-      WHEN t.tipodocumento IN (3, 68) THEN
-        '*CHEQUE* ' || t.documento || ' / venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
-        || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
       WHEN ppt.pedidos_str IS NOT NULL AND ppt.pedidos_str <> '' THEN
-        '*' || t.tipo_doc_nome || '* venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
+        'venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
         || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
         || ' / Doc.' || t.documento || ' / Ped.' || ppt.pedidos_str
       ELSE
-        '*' || t.tipo_doc_nome || '* venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
+        'venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
         || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
         || ' / Doc.' || t.documento
     END AS linha_mensagem
@@ -88,18 +86,32 @@ tipos_por_cliente AS (
     array_join(array_agg(DISTINCT tipo_doc_nome ORDER BY tipo_doc_nome ASC), ', ') AS documentos
   FROM linhas GROUP BY codcliente
 ),
-agg AS (
+metricas AS (
   SELECT l.codcliente, COUNT(*) AS qtd_titulos,
     SUM(l.saldodocumento) AS valor_total,
-    MAX(l.dias_vencido) AS dias_vencido_max,
+    MAX(l.dias_vencido) AS dias_vencido_max
+  FROM linhas l GROUP BY l.codcliente
+),
+blocos_por_tipo AS (
+  SELECT codcliente, tipo_doc_nome,
+    array_join(
+      array_agg(linha_mensagem ORDER BY datavencimento ASC, documento ASC),
+      chr(10)
+    ) AS bloco
+  FROM linhas
+  GROUP BY codcliente, tipo_doc_nome
+),
+mensagem_agg AS (
+  SELECT codcliente,
     array_join(
       array_agg(
-        l.linha_mensagem
-        ORDER BY l.tipo_doc_nome ASC, l.datavencimento ASC, l.documento ASC
+        '*' || tipo_doc_nome || ':*' || chr(10) || bloco
+        ORDER BY tipo_doc_nome ASC
       ),
-      chr(10)
+      chr(10) || chr(10)
     ) AS linhas_msg
-  FROM linhas l GROUP BY l.codcliente
+  FROM blocos_por_tipo
+  GROUP BY codcliente
 )
 SELECT
   'SP' AS filial,
@@ -113,20 +125,21 @@ SELECT
     WHEN LENGTH(cc.telefone_digitos) IN (12, 13) AND SUBSTR(cc.telefone_digitos, 1, 2) = '55' THEN 'OK'
     ELSE 'CONTATO INVALIDO'
   END AS status_contato,
-  a.qtd_titulos, a.valor_total,
+  m.qtd_titulos, m.valor_total,
   tpc.documentos,
   'Ciclo ' || CAST(cp.ciclo AS VARCHAR) AS ciclo_predominante,
-  a.dias_vencido_max,
+  m.dias_vencido_max,
   'Olá, tudo bem?' || chr(10) || chr(10)
    || '🚨 *VENCIMENTOS EM ABERTO* 🚨' || chr(10) || chr(10)
    || 'Cliente: ' || cc.nome || chr(10) || chr(10)
    || 'Verificamos que ficou pendente:' || chr(10) || chr(10)
-   || a.linhas_msg || chr(10) || chr(10)
+   || ma.linhas_msg || chr(10) || chr(10)
    || 'Caso já tenha efetuado pagamento favor desconsiderar esta mensagem. 😉' AS mensagem,
   CAST(NULL AS VARCHAR) AS envio,
   CAST(NULL AS VARCHAR) AS enviado
-FROM agg a
-JOIN clientes_clean cc ON cc.codcliente = a.codcliente
-JOIN ciclo_predominante cp ON cp.codcliente = a.codcliente AND cp.rn = 1
-JOIN tipos_por_cliente tpc ON tpc.codcliente = a.codcliente
-ORDER BY a.dias_vencido_max DESC, a.valor_total DESC
+FROM metricas m
+JOIN clientes_clean cc ON cc.codcliente = m.codcliente
+JOIN ciclo_predominante cp ON cp.codcliente = m.codcliente AND cp.rn = 1
+JOIN tipos_por_cliente tpc ON tpc.codcliente = m.codcliente
+JOIN mensagem_agg ma ON ma.codcliente = m.codcliente
+ORDER BY m.dias_vencido_max DESC, m.valor_total DESC
