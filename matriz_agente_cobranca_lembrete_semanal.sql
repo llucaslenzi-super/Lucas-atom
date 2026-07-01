@@ -1,18 +1,21 @@
--- Agente de Lembrete de Cobrança Semanal Matriz PE
+-- Agente de Lembrete de Cobrança (A Vencer) Matriz PE
 -- Output: nekt_trusted.matriz_agente_cobranca_lembrete_semanal
 -- Schedule: manual
 -- Folder: matriz_cobranca
--- Diferença vs Gaspar: pedido vem direto da string 'Pedido(s): N1,N2...' em
--- mssql_matriz_dbo_nota_fiscal_capa.observacoes. JOIN por CR.documento = NF.documentoorigem.
--- NÃO usa fatura_itens. Mesmo padrão de Loja SP.
--- Em PE a maioria das NFs Fatura tem codigodestinatario=999999 (Consumidor Final),
--- então a cobertura de Ped.{N} na mensagem é baixa (≈19.5%).
+-- Régua: saldo > 0, tipo IN (10, 80, 3, 7, 68, 5),
+--        janela: hoje+1 até (Sex → +3 / demais → +2).
+--   Seg roda → ter+qua ; Qua roda → qui+sex ; Sex roda → sáb+dom+seg
+-- Extração de pedido: regex 'Pedido(s): N1,N2...' em NF.observacoes.
+-- Ordenação das linhas na mensagem:
+--   1) tipo_doc_nome ASC (BOLETO < CHEQUE < CREDIÁRIO < PIX)
+--   2) datavencimento ASC  (estritamente cronológico dentro do tipo)
+--   3) documento ASC       (só desempate quando datas iguais)
 
 WITH
 params AS (SELECT CURRENT_DATE AS data_execucao),
 janela AS (
   SELECT data_execucao,
-    data_execucao AS data_inicio,
+    date_add('day', 1, data_execucao) AS data_inicio,
     CASE date_format(data_execucao, '%a')
       WHEN 'Fri' THEN date_add('day', 3, data_execucao)
       ELSE date_add('day', 2, data_execucao)
@@ -24,11 +27,19 @@ titulos AS (
     cr.codcliente, cr.tipodocumento, cr.documento, cr.parcela,
     CAST(cr.datavencimento AS DATE) AS datavencimento,
     cr.saldodocumento,
-    TRY_CAST(cr.documento AS BIGINT) AS doc_int
+    TRY_CAST(cr.documento AS BIGINT) AS doc_int,
+    CASE cr.tipodocumento
+      WHEN 10 THEN 'BOLETO'
+      WHEN 80 THEN 'PIX'
+      WHEN 3  THEN 'CHEQUE'
+      WHEN 68 THEN 'CHEQUE'
+      WHEN 7  THEN 'CREDIÁRIO'
+      WHEN 5  THEN 'CREDIÁRIO'
+    END AS tipo_doc_nome
   FROM nekt_raw.mssql_matriz_dbo_cr_documentos cr
   CROSS JOIN janela j
   WHERE cr.saldodocumento > 0
-    AND cr.tipodocumento IN (10, 80, 70, 3, 7, 68)
+    AND cr.tipodocumento IN (10, 80, 3, 7, 68, 5)
     AND CAST(cr.datavencimento AS DATE) BETWEEN j.data_inicio AND j.data_fim
 ),
 pedidos_por_titulo AS (
@@ -43,16 +54,17 @@ pedidos_por_titulo AS (
 ),
 linhas AS (
   SELECT t.codcliente, t.datavencimento, t.documento, t.saldodocumento,
+    t.tipo_doc_nome,
     CASE
       WHEN t.tipodocumento IN (3, 68) THEN
-        'Cheque ' || t.documento || ' / venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
+        '*CHEQUE* ' || t.documento || ' / venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
         || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
       WHEN ppt.pedidos_str IS NOT NULL AND ppt.pedidos_str <> '' THEN
-        'venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
+        '*' || t.tipo_doc_nome || '* venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
         || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
         || ' / Doc.' || t.documento || ' / Ped.' || ppt.pedidos_str
       ELSE
-        'venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
+        '*' || t.tipo_doc_nome || '* venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
         || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
         || ' / Doc.' || t.documento
     END AS linha_mensagem
@@ -68,10 +80,21 @@ clientes_clean AS (
     regexp_replace(COALESCE(c.telefone, ''), '[^0-9]', '') AS telefone_digitos
   FROM nekt_raw.mssql_matriz_dbo_clientes c
 ),
+tipos_por_cliente AS (
+  SELECT codcliente,
+    array_join(array_agg(DISTINCT tipo_doc_nome ORDER BY tipo_doc_nome ASC), ', ') AS documentos
+  FROM linhas GROUP BY codcliente
+),
 agg AS (
   SELECT l.codcliente, COUNT(*) AS qtd_titulos,
     SUM(l.saldodocumento) AS valor_total,
-    array_join(array_agg(l.linha_mensagem), chr(10)) AS linhas_msg
+    array_join(
+      array_agg(
+        l.linha_mensagem
+        ORDER BY l.tipo_doc_nome ASC, l.datavencimento ASC, l.documento ASC
+      ),
+      chr(10)
+    ) AS linhas_msg
   FROM linhas l GROUP BY l.codcliente
 )
 SELECT
@@ -87,12 +110,16 @@ SELECT
     ELSE 'CONTATO INVALIDO'
   END AS status_contato,
   a.qtd_titulos, a.valor_total,
+  tpc.documentos,
   'Olá, tudo bem?' || chr(10) || chr(10)
+   || '🚨 *TÍTULOS A VENCER* 🚨' || chr(10) || chr(10)
    || 'Cliente: ' || cc.nome || chr(10) || chr(10)
-   || 'Lembrete, nesta semana você tem vencimento(s) para:' || chr(10) || chr(10)
-   || a.linhas_msg AS mensagem,
+   || 'Lembrete, nos próximos dias você tem vencimento(s) para:' || chr(10) || chr(10)
+   || a.linhas_msg || chr(10) || chr(10)
+   || 'Caso já tenha efetuado pagamento favor desconsiderar esta mensagem. 😉' AS mensagem,
   CAST(NULL AS VARCHAR) AS envio,
   CAST(NULL AS VARCHAR) AS enviado
 FROM agg a
 JOIN clientes_clean cc ON cc.codcliente = a.codcliente
+JOIN tipos_por_cliente tpc ON tpc.codcliente = a.codcliente
 ORDER BY a.valor_total DESC
