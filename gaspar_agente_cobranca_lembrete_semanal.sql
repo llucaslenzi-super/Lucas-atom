@@ -1,15 +1,25 @@
--- Agente de Lembrete de Cobrança Semanal Gaspar/SC
--- Output: nekt_trusted.gaspar_agente_cobranca_lembrete_semanal
--- Schedule: manual (sem cron)
+-- Agente de Lembrete de Cobrança (A Vencer) Gaspar SC
+-- Output: nekt_trusted.gaspar_agente_cobranca_lembrete_semanalv2
+-- Schedule: cron 30 8 * * 1,3,5 (seg/qua/sex 8:30 BRT)
 -- Folder: gaspar_cobranca
+-- Régua: saldo > 0, tipo IN (10, 80, 3, 7, 68, 5),
+--        janela: hoje+1 até (Sex → +3 / demais → +2).
+--   Seg roda → ter+qua ; Qua roda → qui+sex ; Sex roda → sáb+dom+seg
+-- SEM CICLOS (ciclos só existem no fluxo de Vencidos).
+-- Extração de pedido (SC): CR.documentoorigem LIKE 'RNF%' → NF.referencia → FaturaItens.nrpedido
+-- Formato da mensagem:
+--   *CATEGORIA:*
+--   venc. dd/mm/yyyy / Valor: R$ ... / Doc.NNN (linhas em ordem cronológica ASC)
+--   ...linha branca...
+--   *PROXIMA_CATEGORIA:* ...
 
 WITH
 params AS (SELECT CURRENT_DATE AS data_execucao),
 janela AS (
   SELECT data_execucao,
-    data_execucao AS data_inicio,
-    CASE day_of_week(data_execucao)
-      WHEN 5 THEN date_add('day', 3, data_execucao)
+    date_add('day', 1, data_execucao) AS data_inicio,
+    CASE date_format(data_execucao, '%a')
+      WHEN 'Fri' THEN date_add('day', 3, data_execucao)
       ELSE date_add('day', 2, data_execucao)
     END AS data_fim
   FROM params
@@ -19,13 +29,22 @@ titulos AS (
     cr.codcliente, cr.tipodocumento, cr.documento, cr.parcela,
     CAST(cr.datavencimento AS DATE) AS datavencimento,
     cr.saldodocumento, cr.documentoorigem,
+    TRY_CAST(cr.documento AS BIGINT) AS doc_int,
     CASE WHEN cr.documentoorigem LIKE 'RNF%'
-         THEN TRY(CAST(SUBSTR(cr.documentoorigem, 4) AS BIGINT))
-         ELSE NULL END AS rnf_extraido
+      THEN TRY(CAST(SUBSTR(cr.documentoorigem, 4) AS BIGINT))
+      ELSE NULL END AS rnf_extraido,
+    CASE cr.tipodocumento
+      WHEN 10 THEN 'BOLETO'
+      WHEN 80 THEN 'PIX'
+      WHEN 3  THEN 'CHEQUE'
+      WHEN 68 THEN 'CHEQUE'
+      WHEN 7  THEN 'CREDIÁRIO'
+      WHEN 5  THEN 'CREDIÁRIO'
+    END AS tipo_doc_nome
   FROM nekt_raw.mssql_gaspar_dbo_cr_documentos cr
   CROSS JOIN janela j
   WHERE cr.saldodocumento > 0
-    AND cr.tipodocumento IN (10, 80, 70, 3, 7, 68)
+    AND cr.tipodocumento IN (10, 80, 3, 7, 68, 5)
     AND CAST(cr.datavencimento AS DATE) BETWEEN j.data_inicio AND j.data_fim
 ),
 nf_link AS (
@@ -45,11 +64,9 @@ pedidos_por_titulo AS (
 ),
 linhas AS (
   SELECT t.codcliente, t.datavencimento, t.documento, t.saldodocumento,
+    t.tipo_doc_nome,
     CASE
-      WHEN t.tipodocumento IN (3, 68) THEN
-        'Cheque ' || t.documento || ' / venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
-        || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
-      WHEN ppt.pedidos_str IS NOT NULL THEN
+      WHEN ppt.pedidos_str IS NOT NULL AND ppt.pedidos_str <> '' THEN
         'venc. ' || date_format(t.datavencimento, '%d/%m/%Y')
         || ' / Valor: R$ ' || replace(format('%.2f', t.saldodocumento), '.', ',')
         || ' / Doc.' || t.documento || ' / Ped.' || ppt.pedidos_str
@@ -70,11 +87,36 @@ clientes_clean AS (
     regexp_replace(COALESCE(c.telefone, ''), '[^0-9]', '') AS telefone_digitos
   FROM nekt_raw.mssql_gaspar_dbo_clientes c
 ),
-agg AS (
+tipos_por_cliente AS (
+  SELECT codcliente,
+    array_join(array_agg(DISTINCT tipo_doc_nome ORDER BY tipo_doc_nome ASC), ', ') AS documentos
+  FROM linhas GROUP BY codcliente
+),
+metricas AS (
   SELECT l.codcliente, COUNT(*) AS qtd_titulos,
-    SUM(l.saldodocumento) AS valor_total,
-    array_join(array_agg(l.linha_mensagem), chr(10)) AS linhas_msg
+    SUM(l.saldodocumento) AS valor_total
   FROM linhas l GROUP BY l.codcliente
+),
+blocos_por_tipo AS (
+  SELECT codcliente, tipo_doc_nome,
+    array_join(
+      array_agg(linha_mensagem ORDER BY datavencimento ASC, documento ASC),
+      chr(10)
+    ) AS bloco
+  FROM linhas
+  GROUP BY codcliente, tipo_doc_nome
+),
+mensagem_agg AS (
+  SELECT codcliente,
+    array_join(
+      array_agg(
+        '*' || tipo_doc_nome || ':*' || chr(10) || bloco
+        ORDER BY tipo_doc_nome ASC
+      ),
+      chr(10) || chr(10)
+    ) AS linhas_msg
+  FROM blocos_por_tipo
+  GROUP BY codcliente
 )
 SELECT
   'SC' AS filial,
@@ -88,11 +130,18 @@ SELECT
     WHEN LENGTH(cc.telefone_digitos) IN (12, 13) AND SUBSTR(cc.telefone_digitos, 1, 2) = '55' THEN 'OK'
     ELSE 'CONTATO INVALIDO'
   END AS status_contato,
-  a.qtd_titulos, a.valor_total,
+  m.qtd_titulos, m.valor_total,
+  tpc.documentos,
   'Olá, tudo bem?' || chr(10) || chr(10)
+   || '🚨 *TÍTULOS A VENCER* 🚨' || chr(10) || chr(10)
    || 'Cliente: ' || cc.nome || chr(10) || chr(10)
-   || 'Lembrete, nesta semana você tem vencimento(s) para:' || chr(10) || chr(10)
-   || a.linhas_msg AS mensagem
-FROM agg a
-JOIN clientes_clean cc ON cc.codcliente = a.codcliente
-ORDER BY a.valor_total DESC
+   || 'Lembrete, nos próximos dias você tem vencimento(s) para:' || chr(10) || chr(10)
+   || ma.linhas_msg || chr(10) || chr(10)
+   || 'Caso já tenha efetuado pagamento favor desconsiderar esta mensagem. 😉' AS mensagem,
+  CAST(NULL AS VARCHAR) AS envio,
+  CAST(NULL AS VARCHAR) AS enviado
+FROM metricas m
+JOIN clientes_clean cc ON cc.codcliente = m.codcliente
+JOIN tipos_por_cliente tpc ON tpc.codcliente = m.codcliente
+JOIN mensagem_agg ma ON ma.codcliente = m.codcliente
+ORDER BY m.valor_total DESC
