@@ -85,6 +85,10 @@ const CFG_SANTANDER_GASPAR = {
   convenio: '0028697',
   cnpj_beneficiario: '35588873000222',
   nome_cobranca: 'SOUL INDUSTRIA DE TECIDOS LTDA',
+  agencia: '4147',
+  conta: '130020556',
+  banco_codigo: '033',
+  pix_beneficiario: 'financeiro1@soultextil.com.br',
   document_kind: 'DUPLICATA_MERCANTIL',
   payment_type: 'REGISTRO',
   fine_percentage: '2.00',
@@ -92,6 +96,15 @@ const CFG_SANTANDER_GASPAR = {
   write_off_days: '30'
 };
 ```
+
+**Dados bancários da conta Soul Gaspar SC no Santander:**
+- Banco: 033 (Santander)
+- Agência: 4147
+- Conta: 130020556
+- Convênio: 0028697
+- CNPJ: 35.588.873/0002-22
+- Razão social: Soul Industria de Tecidos Ltda
+- PIX beneficiário: financeiro1@soultextil.com.br
 
 `ENV_MAP`:
 
@@ -213,7 +226,7 @@ Parseia response e devolve o formato padronizado. Trata:
 
 **Nome exato:** `santander_gaspar_mtls`
 **Tipo n8n:** HTTP SSL Auth (httpSslAuth)
-**Arquivo:** e-CNPJ Soul PE (`SOUL INDUSTRIA DE TECIDOS LTDA35588873000222 (1).pfx`)
+**Arquivo:** e-CNPJ Gaspar SC (`SOUL INDUSTRIA DE TECIDOS LTDA35588873000222 (1).pfx`)
 **Senha:** (na cred do n8n, não em código)
 **Validade:** 18/06/2027
 

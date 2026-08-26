@@ -469,7 +469,7 @@ curl -sS -w "\nHTTP %{http_code}\n" \
   -d "client_secret=<sandbox_secret>" \
   -d "grant_type=client_credentials"
 ```
-Resultado: `HTTP 200` — token JWT válido por 900s, `iss: "Santander JWT Authority Sandbox"`, `x5t#S256` = fingerprint SHA256 do cert Soul PE.
+Resultado: `HTTP 200` — token JWT válido por 900s, `iss: "Santander JWT Authority Sandbox"`, `x5t#S256` = fingerprint SHA256 do cert Gaspar SC.
 
 ### 10.2 Criar workspace (sandbox)
 

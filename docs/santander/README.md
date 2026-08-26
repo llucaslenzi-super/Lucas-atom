@@ -1,6 +1,6 @@
 # Santander Gaspar — Docs
 
-Documentação da integração Santander (convênio 0028697, CNPJ Soul PE 35.588.873/0002-22) plugada no agente multibanco `Agente Boletos Soul` no n8n.
+Documentação da integração Santander (convênio 0028697, CNPJ Gaspar SC 35.588.873/0002-22) plugada no agente multibanco `Agente Boletos Soul` no n8n.
 
 ## Arquivos
 

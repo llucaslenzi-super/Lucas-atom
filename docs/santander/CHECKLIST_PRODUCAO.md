@@ -6,7 +6,7 @@
 
 ## 1. Alinhamento com Santander (Aline / Rogerio)
 
-- [ ] **Confirmar CNPJ do convênio `0028697`** — precisa bater com o CNPJ do certificado A1 usado no adapter. Se for `35.588.873/0002-22` (Soul PE, o que já testamos em sandbox): ✅ zero retrabalho. Se for outro CNPJ da Soul (`0001-41` Gaspar SC ou `0003-03`): precisa reemitir o `.pfx` no CNPJ correto OU pedir pra Aline mover o convênio.
+- [ ] **Confirmar CNPJ do convênio `0028697`** — precisa bater com o CNPJ do certificado A1 usado no adapter. Se for `35.588.873/0002-22` (Gaspar SC, o que já testamos em sandbox): ✅ zero retrabalho. Se for outro CNPJ da Soul (`0001-41` ou `0003-03`): precisa reemitir o `.pfx` no CNPJ correto OU pedir pra Aline mover o convênio.
 - [ ] **Confirmar dados de conta:** agência, conta corrente, número do cliente, código do beneficiário, código da modalidade. Documentar em `ADAPTER_SANTANDER_GASPAR.md` no CFG_SANTANDER_GASPAR.
 - [ ] **Confirmar convênio ativo em prod** (o e-mail do Santander diz que já geram boletos via API — validar se o convênio 0028697 aceita novos apps).
 
@@ -18,7 +18,7 @@
 
 ## 3. n8n — Credencial e config
 
-- [ ] **Subir cred `santander_gaspar_mtls`** no n8n (Credentials → New → HTTP SSL Auth → upload PFX Soul PE + senha do certificado). Nome exato importa: `santander_gaspar_mtls`.
+- [ ] **Subir cred `santander_gaspar_mtls`** no n8n (Credentials → New → HTTP SSL Auth → upload PFX Gaspar SC + senha do certificado). Nome exato importa: `santander_gaspar_mtls`.
 - [ ] **Vincular cred nos 3 nodes HTTP do Adapter Santander Gaspar:**
   - `Sandbox Token Santander`
   - `Prod Token Santander`
