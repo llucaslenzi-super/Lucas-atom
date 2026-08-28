@@ -46,6 +46,24 @@ Adapter Trigger → Env Check Santander → (sandbox|prod) Token → Fan Out Par
 
 **Bloqueador único do adapter:** falta subir a credencial `santander_gaspar_mtls` (HTTP SSL Auth com o `.pfx` Gaspar SC) e vincular nos 3 HTTP nodes acima.
 
+### 3.1 Teste do adapter com pin data (28/08)
+
+Rodei `test_workflow` no adapter (execution `2438`) simulando input do dashboard e resposta OK da API Santander. Toda a lógica passou:
+
+- `Fan Out` populou `CFG_SANTANDER_GASPAR` correto (convênio, CNPJ, agência, conta, PIX) ✅
+- `Montar Body` construiu:
+  - `payer.name`: `CLIENTE TESTE AUDITORIA LTDA` (usou `p.cliente`)
+  - `payer.documentType`: `CNPJ` (auto-detectou pelo len=14)
+  - `payer.documentNumber`: `35588873000141`
+  - `payer.address`: `RUA DAS FLORES 100` (fallback pra `enderecocobranca`)
+  - `payer.zipCode`: `89110-000` (CEP com hífen)
+  - `covenantCode`: `0028697`
+  - `nsuCode`: `TST1787878554879000` (prefixo TST em sandbox, único)
+  - `chave_unica`: `SC|99999|AUD001|1`
+- `Format Output` retornou: `nossonumero=00028697000000012345`, `linhadigitavel=03399.12345...`, `codbarras`, `qr_pix`, `qr_url`, `santander_ok=true`, `santander_status=201` — pronto pro `Adapt Santander Gaspar Output` → `Prep Log Row`
+
+**Nota menor:** o `bankNumber` construído (`digitos(documento) + parcela.padStart(3)`) pode ficar curto se o `documento` do ERP tiver poucos dígitos (no teste ficou `001001`). Santander pode ou não aceitar formatos curtos — se der 400 no primeiro boleto real, ajusta esse campo pro formato exato que o convênio 0028697 espera (13 dígitos, geralmente).
+
 ## 4. Integração no main workflow (`PKhlEnAj93IA9Mwv`)
 
 | Item | Status | Nota |

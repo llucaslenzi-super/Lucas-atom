@@ -11,6 +11,7 @@ Documentação da integração Santander (convênio 0028697, CNPJ Gaspar SC 35.5
 | [`PLUGAR_NO_MAIN_WORKFLOW.md`](./PLUGAR_NO_MAIN_WORKFLOW.md) | Registro do que foi alterado no main workflow (`PKhlEnAj93IA9Mwv`) pra plugar o adapter: Switch, nodes novos, conexões, Prep Log Row, dashboard. Rollback plan incluído. |
 | [`CHECKLIST_PRODUCAO.md`](./CHECKLIST_PRODUCAO.md) | Checklist executável pra virar chave em produção — bootstrap portal, cred mTLS, workspace prod, testes obrigatórios. |
 | [`AUDITORIA_SANDBOX.md`](./AUDITORIA_SANDBOX.md) | Snapshot da auditoria sandbox 28/08/2026 antes de subir prod — status de cada componente (cert, app portal, adapter, main workflow, cred), bloqueadores restantes. |
+| [`PORTAL_PROD_STEP_BY_STEP.md`](./PORTAL_PROD_STEP_BY_STEP.md) | Guia clique-por-clique pra criar a app de produção no portal Santander Developer. Foca no que trava (upload cert, ativação do produto Cobrança, captura de client_id/secret). |
 
 ## Status atual
 
