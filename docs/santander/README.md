@@ -10,12 +10,15 @@ Documentação da integração Santander (convênio 0028697, CNPJ Gaspar SC 35.5
 | [`ADAPTER_SANTANDER_GASPAR.md`](./ADAPTER_SANTANDER_GASPAR.md) | Spec do workflow n8n `Adapter Santander Gaspar` (id `cxjhU46JBfCnKM12`) — contrato input/output, config hardcoded, 8 nodes detalhados, diferenças vs Sicoob/Itaú. |
 | [`PLUGAR_NO_MAIN_WORKFLOW.md`](./PLUGAR_NO_MAIN_WORKFLOW.md) | Registro do que foi alterado no main workflow (`PKhlEnAj93IA9Mwv`) pra plugar o adapter: Switch, nodes novos, conexões, Prep Log Row, dashboard. Rollback plan incluído. |
 | [`CHECKLIST_PRODUCAO.md`](./CHECKLIST_PRODUCAO.md) | Checklist executável pra virar chave em produção — bootstrap portal, cred mTLS, workspace prod, testes obrigatórios. |
+| [`AUDITORIA_SANDBOX.md`](./AUDITORIA_SANDBOX.md) | Snapshot da auditoria sandbox 28/08/2026 antes de subir prod — status de cada componente (cert, app portal, adapter, main workflow, cred), bloqueadores restantes. |
 
 ## Status atual
 
-- ✅ **Sandbox validado ponta a ponta** (25/08/2026): OAuth mTLS + workspace criada + boleto R$100 emitido com linha digitável + QR PIX
-- ✅ **Adapter workflow criado** no n8n (`cxjhU46JBfCnKM12`)
-- ✅ **Plugado no main workflow** — Switch, Sub Adapter, Adapt Output, Prep Log Row, dashboard atualizado
-- ⏸ **Produção pendente:** confirmar CNPJ do convênio com Aline + criar app prod no portal + subir cred `santander_gaspar_mtls` no n8n + criar workspace prod
+- ✅ **Sandbox validado ponta a ponta via curl** (25/08/2026): OAuth mTLS + workspace criada + boleto R$100 emitido com linha digitável + QR PIX
+- ✅ **Adapter workflow criado** no n8n (`cxjhU46JBfCnKM12`, 8 nodes)
+- ✅ **Plugado no main workflow** — Switch output 4, Sub Adapter, Adapt Output, Prep Log Row, dashboard atualizado
+- ✅ **Auditoria pós-integração** (28/08/2026): Switch corrigido (routing das outras contas realinhado sem alterar comportamento), Santander re-adicionado no dropdown do dashboard
+- ⏸ **Bloqueador único pra rodar sandbox pelo dashboard:** subir cred `santander_gaspar_mtls` (PFX Gaspar SC) no n8n e vincular nos 3 HTTP nodes do adapter
+- ⏸ **Produção pendente:** confirmar CNPJ do convênio com Aline + criar app prod no portal + criar workspace prod + trocar placeholders no adapter
 
 ## Nada mexido em Sicoob nem Itaú — alterações são 100% aditivas.
