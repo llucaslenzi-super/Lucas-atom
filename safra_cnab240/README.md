@@ -26,20 +26,34 @@ Código de suporte à emissão de boletos Safra Cobrança Direta via CNAB 240 la
 
 ## Workflow n8n
 
-- ID: `r9fmhgLvcP58xm0u`
-- Nome: `Agente Boletos Safra`
+- ID: `r9fmhgLvcP58xm0u`  |  URL: https://soultextil.app.n8n.cloud/workflow/r9fmhgLvcP58xm0u
+- Nome: `Agente Boletos Safra`  |  Versão atual: v7.3
 - 5 webhooks: `/safra-emitir`, `/safra-consultar`, `/safra-alterar`, `/safra-baixar`, `/safra-processar-retorno`
 - Base URL: `https://soultextil.app.n8n.cloud/webhook/`
 - Prod bloqueado (`env=prod` → `PROD_BLOQUEADO`), sandbox default
-- Persistência: 3 Data Tables com flag `simulacao=true` (arquivos_remessa_safra, fila_remessa_safra, safra_retorno_eventos)
+- Validação forte de payload (CPF/CNPJ, CEP, datas, especie)
+- Persistência ligada nas 3 Data Tables com flag `simulacao=true`
+- Consultar faz lookup real: devolve `{status, pagou, ultimo_evento, historico_fila, historico_eventos}`
 
 ## Data Tables
 
 - `arquivos_remessa_safra` — histórico de todo REM gerado
-- `fila_remessa_safra` — fila de títulos por status
+- `fila_remessa_safra` — fila de títulos por status (+ ultimo_status_retorno)
 - `safra_retorno_eventos` — histórico de eventos do retorno
-- `controle_nn_safra` — sequencial NN (não usado ainda)
+- `controle_nn_safra` — sequencial NN (reservado, não usado ainda)
+
+Todas com coluna `simulacao` (boolean) pra distinguir dados de teste.
+
+## Actions do Router
+
+- `emitir` — gera REM cod 01 + CB + LD
+- `consultar` — leitura real das tabelas (bypassa Router, vai direto Get Fila → Get Eventos → Compose)
+- `alterar` / `alterar_venc` / `alterar_dados` — REM cod 06 ou 31
+- `baixar` — REM cod 02
+- `processar_retorno` — parseia .RET (aceita `conteudo_ret` ou `conteudo_base64`)
+- `segunda_via` — regera CB/LD sem REM
+- `health` — check
 
 ## Homologação
 
-Aprovada pela Mesa Safra em 01/09/2026. Aguardando confirmação sobre política de baixa (60 vs prazo flexível por título) pra concluir.
+Aprovada pela Mesa Safra em 01/09/2026. Aguardando confirmação sobre política de baixa (prazo flexível por título) pra concluir e liberar credenciais prod.
