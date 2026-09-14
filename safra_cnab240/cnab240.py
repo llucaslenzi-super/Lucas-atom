@@ -112,6 +112,10 @@ def segmento_p(numero_lote, seq_registro, titulo):
     Aceita `titulo["codigo_movimento"]` pra escolher a operacao (default '01').
     """
     _codmov = titulo.get("codigo_movimento", "01")
+    # Regra Safra: baixa_dias max 90 (confirmado Mesa em 02/09/2026).
+    # Se ERP mandar > 90, clampa em 90 automaticamente.
+    _baixa_dias_orig = int(titulo.get("baixa_dias", 90) or 90)
+    _baixa_dias = max(1, min(90, _baixa_dias_orig))
     # Nosso Número: 9 posições livres em 38-46; 47-57 em branco (Safra ignora)
     nosso_numero_20 = _num(titulo["nosso_numero"], 9) + _alfa("", 11)
 
@@ -171,7 +175,7 @@ def segmento_p(numero_lote, seq_registro, titulo):
         _num(titulo["protesto_codigo"], 1),          # 221     Cód Protesto
         _num(titulo["protesto_dias"], 2),            # 222-223 Dias Protesto
         _num(titulo["baixa_codigo"], 1),             # 224     Cód Baixa
-        _alfa(_num(titulo["baixa_dias"], 3), 3),     # 225-227 Dias Baixa (alfa no manual)
+        _alfa(_num(_baixa_dias, 3), 3),              # 225-227 Dias Baixa (max 90, clampado)
         _num("09", 2),                               # 228-229 Moeda = 09 (Real)
         _num("0", 10),                               # 230-239 Nº Contrato = 0
         _alfa("1", 1),                               # 240     Uso Livre = 1 (não parcial)
