@@ -51,3 +51,17 @@ SISTEMA_SAFRA = "7"
 FRASE_INSTRUCOES_SAFRA = (
     "As informacoes contidas neste boleto sao de exclusiva responsabilidade do Beneficiario."
 )
+
+# ---------- Producao (homologacao aprovada 15/09/2026) ----------
+# Envio manual via Safra Empresas -> OUTROS -> Transferencia de Arquivos -> Enviar -> Caixa Postal
+CAIXA_POSTAL = "SOULINDU"
+PRACA_ATENDIMENTO = "100% SAFRA"
+TIPO_IMPRESSAO = "EMPRESA"
+BOLETO_QRCODE_PIX = False           # nao homologado
+INSTRUCOES_HOMOLOGADAS = {
+    "juros": True,
+    "multa": True,
+    "desconto": True,
+    "protesto": False,              # NAO homologado
+    "baixa_automatica": False,      # NAO homologado (baixa so via REM cod 02)
+}

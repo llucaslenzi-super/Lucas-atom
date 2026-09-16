@@ -56,4 +56,24 @@ Todas com coluna `simulacao` (boolean) pra distinguir dados de teste.
 
 ## Homologação
 
-Aprovada pela Mesa Safra em 01/09/2026. Aguardando confirmação sobre política de baixa (prazo flexível por título) pra concluir e liberar credenciais prod.
+**APROVADA em 15/09/2026** pela Mesa Implantação Safra. Produção liberada a partir de 15/09 17h.
+
+**Instruções homologadas:** Juros, Multa, Desconto.
+**NÃO homologadas:** Protesto, Sustar Protesto, Baixa/Devolução automática após XX dias.
+→ workflow e lib bloqueiam essas 3 no código.
+
+**Envio do arquivo remessa (manual, portal web):**
+1. Safra Empresas → menu OUTROS
+2. Transferência de Arquivos → Enviar
+3. Caixa Postal → `SOULINDU`
+4. Selecionar .REM → Enviar
+
+**Dados operacionais:**
+- CNPJ: 35.588.873/0001-41
+- Agência: 02900 | Conta: 5875216
+- Carteira: 1 (Simples)
+- Padrão: CNAB 240 layout 103
+- Praça: 100% SAFRA | Impressão: EMPRESA | QRCode/PIX: NÃO
+- Central Safra (dúvidas transmissão): 0300 015 7575 / 11 3175-8248
+
+**Primeira emissão real recomendada:** 1 título R$ 1,00 pra você mesmo, baixar (cod 02) imediatamente após confirmar recebimento no portal.

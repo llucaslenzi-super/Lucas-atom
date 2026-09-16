@@ -122,8 +122,7 @@ const casos = [
   { nome: 'BAIXA (02)', jsFn: 'gerarRemessaBaixa', pyFn: 'gerar_remessa_baixa' },
   { nome: 'ALT VENC (06)', jsFn: 'gerarRemessaAlteracaoVenc', pyFn: 'gerar_remessa_alteracao_venc' },
   { nome: 'ALT DADOS (31)', jsFn: 'gerarRemessaAlteracaoDados', pyFn: 'gerar_remessa_alteracao_dados' },
-  { nome: 'PROTESTO (09)', jsFn: 'gerarRemessaProtesto', pyFn: 'gerar_remessa_protesto' },
-  { nome: 'SUSTAR PROT (10)', jsFn: 'gerarRemessaSustarProtesto', pyFn: 'gerar_remessa_sustar_protesto' },
+  // PROTESTO (09) e SUSTAR (10) REMOVIDOS - nao homologados Mesa Safra
 ];
 
 let todosOk = true;

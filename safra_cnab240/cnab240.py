@@ -298,10 +298,28 @@ def trailer_arquivo(qtd_lotes, qtd_registros_arquivo):
 
 # ---------- Gerador Principal ----------
 
+# Movimentos NAO homologados pela Mesa Safra (email 15/09/2026):
+# - 09 (Protesto) e 10 (Sustar Protesto) nao autorizados
+# - Baixa/Devolucao apos XX dias tambem nao homologada => baixa_codigo sempre '1'
+_MOVIMENTOS_NAO_HOMOLOGADOS = {"09", "10"}
+
+
 def gerar_remessa(titulos, seq_arquivo=1, data_geracao=None):
     """Retorna string com o arquivo remessa completo (linhas separadas por \\r\\n)."""
     if data_geracao is None:
         data_geracao = date.today()
+
+    # Guard: bloqueia movimentos nao homologados e forca baixa_codigo=1
+    for t in titulos:
+        cod = str(t.get("codigo_movimento", "01"))
+        if cod in _MOVIMENTOS_NAO_HOMOLOGADOS:
+            raise ValueError(
+                f"Movimento {cod} nao homologado pela Mesa Safra. "
+                "Instrucoes aprovadas: Juros, Multa, Desconto. "
+                "Protesto/Sustar/Baixa-automatica NAO liberados."
+            )
+        # Forca nao-baixa-automatica: baixa so via REM cod 02 explicita
+        t["baixa_codigo"] = "1"
 
     linhas = []
     numero_lote = 1
@@ -368,14 +386,7 @@ def gerar_remessa_alteracao_dados(titulos, seq_arquivo=1, data_geracao=None):
     return gerar_remessa([_clone(t, "31") for t in titulos], seq_arquivo, data_geracao)
 
 
-def gerar_remessa_protesto(titulos, seq_arquivo=1, data_geracao=None):
-    """Cod 09 - Pedido de protesto."""
-    return gerar_remessa([_clone(t, "09") for t in titulos], seq_arquivo, data_geracao)
-
-
-def gerar_remessa_sustar_protesto(titulos, seq_arquivo=1, data_geracao=None):
-    """Cod 10 - Sustar protesto."""
-    return gerar_remessa([_clone(t, "10") for t in titulos], seq_arquivo, data_geracao)
+# Cod 09 (Protesto) e Cod 10 (Sustar) REMOVIDOS - nao homologados pela Mesa Safra.
 
 
 if __name__ == "__main__":

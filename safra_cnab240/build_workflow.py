@@ -44,21 +44,26 @@ const CFG = {
   SISTEMA_SAFRA: '7',
 };
 
+// Homologacao aprovada pela Mesa Safra em 15/09/2026 - PROD liberado.
+// Instrucoes homologadas: Juros, Multa, Desconto.
+// NAO homologados: Protesto, Sustar, Baixa/Devolucao automatica apos XX dias.
+const ACTIONS_NAO_HOMOLOGADAS = new Set(['protestar', 'sustar', 'sustar_protesto']);
+
 const results = [];
 for (const item of $input.all()) {
   const body = item.json;
   const action = String(body.action || '').toLowerCase();
   const env = String(body.env || 'sandbox').toLowerCase();
 
-  // PROD bloqueado por default. Retorna erro claro se tentar.
-  if (env === 'prod' || env === 'production') {
+  // Bloqueia actions nao homologadas pela Mesa (Safra retorna erro se receber).
+  if (ACTIONS_NAO_HOMOLOGADAS.has(action)) {
     results.push({
       json: {
         ok: false,
         action,
         env,
-        erro: 'PROD_BLOQUEADO',
-        mensagem: 'Emissao em producao esta bloqueada. Use env=sandbox pra homologacao.',
+        erro: 'ACTION_NAO_HOMOLOGADA',
+        mensagem: 'Instrucao ' + action + ' nao homologada pela Mesa Safra. Aprovadas: Juros, Multa, Desconto.',
       },
     });
     continue;
@@ -81,6 +86,11 @@ for (const item of $input.all()) {
         rem_bytes: rem.length,
         rem_linhas: rem.split('\r\n').filter(l => l).length,
         boletos,
+        envio: {
+          caixa_postal: 'SOULINDU',
+          canal: 'Safra Empresas -> OUTROS -> Transferencia de Arquivos -> Enviar',
+          horario_producao: 'Prod liberada 15/09/2026 17h',
+        },
         // conteudo_rem: rem,   // omitido no default - pode ser gigante
       };
       if (body.include_rem_content) resultado.conteudo_rem = rem;

@@ -268,11 +268,29 @@ function trailerArquivo(cfg, qtdLotes, qtdRegistrosArquivo) {
   return assertLen(parts.join(''), 'Trailer Arquivo');
 }
 
+// Movimentos NAO homologados pela Mesa Safra (email 15/09/2026):
+// - 09 (Protesto) e 10 (Sustar Protesto) nao autorizados
+// - Baixa/Devolucao apos XX dias tambem nao homologada => baixa_codigo sempre '1'
+const MOVIMENTOS_NAO_HOMOLOGADOS = new Set(['09', '10']);
+
 /**
  * Monta o arquivo REM completo com N titulos.
  * Retorna string com linhas separadas por \r\n.
  */
 function gerarRemessa(cfg, titulos, seqArquivo, dataGeracao) {
+  // Guard: bloqueia movimentos nao homologados e forca baixa_codigo=1
+  for (const t of titulos) {
+    const cod = String(t.codigo_movimento || '01');
+    if (MOVIMENTOS_NAO_HOMOLOGADOS.has(cod)) {
+      throw new Error(
+        `Movimento ${cod} nao homologado pela Mesa Safra. ` +
+        'Instrucoes aprovadas: Juros, Multa, Desconto. ' +
+        'Protesto/Sustar/Baixa-automatica NAO liberados.'
+      );
+    }
+    // Forca nao-baixa-automatica: baixa so via REM cod 02 explicita
+    t.baixa_codigo = '1';
+  }
   const linhas = [];
   const numeroLote = 1;
   linhas.push(headerArquivo(cfg, seqArquivo, dataGeracao));
@@ -330,15 +348,7 @@ function gerarRemessaAlteracaoDados(cfg, titulos, seqArquivo, dataGeracao) {
   return gerarRemessa(cfg, titulos.map(t => _clone(t, '31')), seqArquivo, dataGeracao);
 }
 
-// Pedido de protesto (cod 09)
-function gerarRemessaProtesto(cfg, titulos, seqArquivo, dataGeracao) {
-  return gerarRemessa(cfg, titulos.map(t => _clone(t, '09')), seqArquivo, dataGeracao);
-}
-
-// Sustar protesto (cod 10)
-function gerarRemessaSustarProtesto(cfg, titulos, seqArquivo, dataGeracao) {
-  return gerarRemessa(cfg, titulos.map(t => _clone(t, '10')), seqArquivo, dataGeracao);
-}
+// Cod 09 (Protesto) e Cod 10 (Sustar) REMOVIDOS - nao homologados pela Mesa Safra.
 
 // ---------- Parser RETORNO ----------
 
@@ -611,7 +621,7 @@ if (typeof module !== 'undefined' && module.exports) {
     headerArquivo, headerLote, segmentoP, segmentoQ, segmentoR,
     trailerLote, trailerArquivo, gerarRemessa,
     gerarRemessaEntrada, gerarRemessaBaixa, gerarRemessaAlteracaoVenc,
-    gerarRemessaAlteracaoDados, gerarRemessaProtesto, gerarRemessaSustarProtesto,
+    gerarRemessaAlteracaoDados,
     parseRetorno, classificarEvento,
     RETORNO_OCORRENCIAS, RETORNO_MOTIVOS,
     fatorVencimento, dacCodigoBarras, dvModulo10, codigoBarras44, linhaDigitavel,
