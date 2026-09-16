@@ -290,6 +290,10 @@ function gerarRemessa(cfg, titulos, seqArquivo, dataGeracao) {
     }
     // Forca nao-baixa-automatica: baixa so via REM cod 02 explicita
     t.baixa_codigo = '1';
+    // Clamp baixa_dias em [1, 90] (paridade Python; falsy vira 90)
+    const bdOrig = parseInt(t.baixa_dias, 10);
+    const bd = isNaN(bdOrig) || bdOrig <= 0 ? 90 : Math.min(90, bdOrig);
+    t.baixa_dias = bd;
   }
   const linhas = [];
   const numeroLote = 1;
