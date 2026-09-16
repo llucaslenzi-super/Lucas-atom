@@ -1,0 +1,42 @@
+{
+  "webhook": "POST https://soultextil.app.n8n.cloud/webhook/safra-emitir",
+  "descricao": "Emissao sem juros/multa/desconto (baseline)",
+  "body": {
+    "env": "prod",
+    "titulos": [
+      {
+        "seu_numero": "EX0002",
+        "nosso_numero": "000000101",
+        "data_emissao": "2026-09-16",
+        "data_vencimento": "2026-10-16",
+        "valor_centavos": 100000,
+        "especie": "02",
+        "juros_codigo": "3",
+        "juros_data": "2026-10-17",
+        "juros_valor_centavos": 0,
+        "desconto_codigo": "0",
+        "desconto_data": "2026-10-11",
+        "desconto_valor_centavos": 0,
+        "multa_codigo": "0",
+        "multa_data": "2026-10-17",
+        "multa_percentual": 0,
+        "protesto_codigo": "3",
+        "protesto_dias": 0,
+        "baixa_codigo": "1",
+        "baixa_dias": 90,
+        "pagador": {
+          "tipo_inscricao": "1",
+          "cpf_cnpj": "00052998224725",
+          "nome": "CLIENTE EXEMPLO LTDA",
+          "endereco": "RUA DAS FLORES 100",
+          "bairro": "CENTRO",
+          "cep_prefixo": "55190",
+          "cep_sufixo": "505",
+          "cidade": "SANTA CRUZ DO C",
+          "uf": "PE"
+        }
+      }
+    ],
+    "include_rem_content": true
+  }
+}

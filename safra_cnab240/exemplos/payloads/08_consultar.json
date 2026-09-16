@@ -1,0 +1,8 @@
+{
+  "webhook": "POST https://soultextil.app.n8n.cloud/webhook/safra-consultar",
+  "descricao": "Consulta status de 1 titulo pelo nosso_numero (le Data Table)",
+  "body": {
+    "env": "prod",
+    "nosso_numero": "000000100"
+  }
+}

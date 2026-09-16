@@ -1,0 +1,8 @@
+{
+  "webhook": "POST https://soultextil.app.n8n.cloud/webhook/safra-processar-retorno",
+  "descricao": "Processa arquivo .RET que Safra manda de volta. body.conteudo_ret = string do arquivo, ou conteudo_base64",
+  "body": {
+    "env": "prod",
+    "conteudo_ret": "COLE_AQUI_O_CONTEUDO_DO_ARQUIVO_RET"
+  }
+}

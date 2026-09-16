@@ -1,0 +1,43 @@
+{
+  "webhook": "POST https://soultextil.app.n8n.cloud/webhook/safra-alterar",
+  "descricao": "Prorroga vencimento em +15 dias. action=alterar_venc",
+  "body": {
+    "action": "alterar_venc",
+    "env": "prod",
+    "titulos": [
+      {
+        "seu_numero": "EX0001",
+        "nosso_numero": "000000100",
+        "data_emissao": "2026-09-16",
+        "data_vencimento": "2026-10-31",
+        "valor_centavos": 100000,
+        "especie": "02",
+        "juros_codigo": "1",
+        "juros_data": "2026-10-17",
+        "juros_valor_centavos": 33,
+        "desconto_codigo": "1",
+        "desconto_data": "2026-10-11",
+        "desconto_valor_centavos": 5000,
+        "multa_codigo": "2",
+        "multa_data": "2026-10-17",
+        "multa_percentual": 2.0,
+        "protesto_codigo": "3",
+        "protesto_dias": 0,
+        "baixa_codigo": "1",
+        "baixa_dias": 90,
+        "pagador": {
+          "tipo_inscricao": "1",
+          "cpf_cnpj": "00052998224725",
+          "nome": "CLIENTE EXEMPLO LTDA",
+          "endereco": "RUA DAS FLORES 100",
+          "bairro": "CENTRO",
+          "cep_prefixo": "55190",
+          "cep_sufixo": "505",
+          "cidade": "SANTA CRUZ DO C",
+          "uf": "PE"
+        }
+      }
+    ],
+    "include_rem_content": true
+  }
+}
