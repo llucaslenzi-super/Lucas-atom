@@ -193,8 +193,9 @@ tr:hover td{background:rgba(201,162,39,.03)}
     <div class="brand-title serif">Plataforma de Inteligência</div>
     <div class="login-sub">Soul Têxtil · acesso corporativo seguro</div>
     <form id="loginForm">
-      <div class="field"><label>E-mail corporativo</label><input class="input" type="email" id="email" placeholder="voce@soultextil.com.br" autocomplete="username" required></div>
+      <div class="field"><label>E-mail corporativo</label><input class="input" type="email" id="email" placeholder="voce@soultextil.com.br" autocomplete="username" value="diretoria@soultextil.com.br" required></div>
       <div class="field"><label>Senha</label><input class="input" type="password" id="senha" placeholder="••••••••" autocomplete="current-password" required></div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);margin:0 0 14px;cursor:pointer"><input type="checkbox" id="remember" checked style="width:15px;height:15px;accent-color:var(--gold)"> Lembrar login e senha neste dispositivo</label>
       <button class="btn gold block" type="submit" id="loginBtn">Entrar</button>
       <div class="login-err" id="loginErr"></div>
     </form>
@@ -256,12 +257,13 @@ function toast(m){const t=document.createElement('div');t.className='toast';t.te
 
 /* ---------- AUTH ---------- */
 document.querySelectorAll('#login .chip').forEach(c=>c.onclick=()=>{document.getElementById('email').value=c.dataset.u;document.getElementById('senha').focus()});
+(function(){try{var raw=localStorage.getItem('soul_login');if(raw){var c=JSON.parse(raw);if(c&&c.e)document.getElementById('email').value=c.e;if(c&&c.s)document.getElementById('senha').value=c.s;}}catch(_){}})();
 document.getElementById('loginForm').onsubmit=async e=>{
   e.preventDefault();const b=document.getElementById('loginBtn');const err=document.getElementById('loginErr');err.textContent='';b.textContent='Entrando…';b.disabled=true;
   try{
     const r=await fetch(API+'/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:document.getElementById('email').value.trim().toLowerCase(),senha:document.getElementById('senha').value})});
     const j=await r.json();
-    if(j.sucesso&&j.token){setToken(j.token);await boot();}
+    if(j.sucesso&&j.token){setToken(j.token);try{var rm=document.getElementById('remember');if(rm&&rm.checked){localStorage.setItem('soul_login',JSON.stringify({e:document.getElementById('email').value.trim().toLowerCase(),s:document.getElementById('senha').value}));}else{localStorage.removeItem('soul_login');}}catch(_){}await boot();}
     else{err.textContent=j.erro==='credenciais_invalidas'?'E-mail ou senha inválidos.':j.erro==='usuario_suspenso'?'Acesso suspenso. Fale com o administrador.':'Não foi possível entrar.';}
   }catch(x){err.textContent='Erro de conexão.';}
   b.textContent='Entrar';b.disabled=false;
@@ -285,7 +287,7 @@ async function boot(){
 }
 function buildNav(){
   const op=[['dashboard','Dashboard','dash'],['chat','Chat','chat'],['historico','Histórico','hist'],['config','Configurações','cfg']];
-  const ad=[['rastreabilidade','Rastreabilidade','audit'],['usuarios','Usuários & Licenças','users'],['governanca','Governança','gov']];
+  const ad=[['rastreabilidade','Rastreabilidade','audit'],['custos','Custos','db'],['usuarios','Usuários & Licenças','users'],['governanca','Governança','gov']];
   let h='';op.forEach(i=>h+=navItem(i));
   if(state.user.is_admin){h+='<div class="nav-sep">Administração</div>';ad.forEach(i=>h+=navItem(i));}
   document.getElementById('nav').innerHTML=h;
@@ -295,7 +297,7 @@ function go(v){state.view=v;document.querySelectorAll('.nav-item').forEach(n=>n.
   const m=document.getElementById('main');
   if(v==='chat'){renderChat(m);return;}
   m.innerHTML='<div class="page"><div style="text-align:center;padding:60px;color:var(--muted2)">Carregando…</div></div>';
-  ({dashboard:pageDashboard,historico:pageHistorico,config:pageConfig,rastreabilidade:pageRastro,usuarios:pageUsuarios,governanca:pageGov}[v]||pageDashboard)(m);
+  ({dashboard:pageDashboard,historico:pageHistorico,config:pageConfig,rastreabilidade:pageRastro,custos:pageCustos,usuarios:pageUsuarios,governanca:pageGov}[v]||pageDashboard)(m);
 }
 
 /* ---------- DASHBOARD ---------- */
@@ -572,6 +574,47 @@ async function pageGov(m){
    +'</div></div>';
 }
 function matTag(c){c=(c||'').toUpperCase();if(c==='PROIBIDO')return '<span class="tag danger">proibido</span>';if(c==='RESTRITO')return '<span class="tag warn">restrito</span>';if(c==='MASCARAR')return '<span class="tag warn">mascarar</span>';return '<span class="tag ok">permitido</span>'}
+
+/* ---------- ADMIN: CUSTOS ---------- */
+function mesLabel(m){var p=String(m).split('-');var n=['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];return (n[+p[1]]||p[1])+'/'+p[0];}
+async function pageCustos(m){
+  let d={};try{d=await api('/admin/kpis')}catch(e){}
+  const s=d.kpis||{};
+  const area=s.custo_por_area||[],pess=s.custo_por_usuario||[],mod=s.custo_por_modelo||[],mes=s.custo_por_mes||[];
+  window._custos={area:area,pess:pess,mod:mod,mes:mes};
+  const maxMes=Math.max(1,...mes.map(x=>x.custo));
+  const maxA=Math.max(1,...area.map(x=>x.custo));
+  const teto=s.teto_global||5000,pct=teto?(s.custo_total/teto*100):0;
+  m.innerHTML='<div class="page">'+head('Custos','Financeiro de IA','Custo detalhado por setor, pessoa e modelo — período completo (kg de dados reais, valores em R$).')
+   +'<div class="card" style="margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center"><div class="muted" style="font-size:13px;flex:1">Relatórios de custo do período</div><button class="btn sm" onclick="exportCustosCSV()">'+svg(ICON.db)+'Exportar CSV</button><button class="btn sm ghost" onclick="window.print()">Imprimir / PDF</button></div>'
+   +'<div class="grid g4">'
+   +stat('Custo total (período)',brl(s.custo_total),'db',num(s.interacoes_total)+' interações')
+   +stat('Custo médio / interação',brl(s.custo_medio),'spark','todas as áreas')
+   +stat('Setores com uso',num(area.length),'gov','de '+num((s.por_area||[]).length)+' áreas')
+   +stat('Consumo do teto',pct.toFixed(1)+'%','chat','de '+brl(teto)+' orçado')
+   +'</div>'
+   +'<div class="section-title serif">Tendência mensal de custo</div><div class="card">'+(mes.length?mes.map(function(x){return '<div style="margin-bottom:11px"><div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px"><span>'+mesLabel(x.mes)+'</span><b class="mono">'+brl(x.custo)+' · '+num(x.n)+' int.</b></div><div class="bar"><i style="width:'+(x.custo/maxMes*100).toFixed(1)+'%"></i></div></div>';}).join(''):'<div class="muted">Sem dados.</div>')+'</div>'
+   +'<div class="grid g2">'
+   +'<div><div class="section-title serif">Custo por setor</div><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Setor</th><th>Int.</th><th>Custo</th><th>%</th></tr></thead><tbody>'+area.map(function(x){return '<tr><td style="font-weight:500">'+esc(x.area)+'<div class="bar" style="height:5px;margin-top:5px"><i style="width:'+(x.custo/maxA*100).toFixed(1)+'%"></i></div></td><td class="mono">'+num(x.n)+'</td><td class="mono">'+brl(x.custo)+'</td><td class="mono">'+x.pct+'%</td></tr>';}).join('')+'</tbody></table></div></div>'
+   +'<div><div class="section-title serif">Custo por modelo</div><div class="card" style="padding:0;overflow:auto"><table><thead><tr><th>Modelo</th><th>Int.</th><th>Custo</th></tr></thead><tbody>'+mod.map(function(x){return '<tr><td>'+esc(modelLabel(x.modelo))+'</td><td class="mono">'+num(x.n)+'</td><td class="mono">'+brl(x.custo)+'</td></tr>';}).join('')+'</tbody></table></div>'
+   +'<div class="card" style="margin-top:12px"><div class="muted" style="font-size:12px">Custo médio por interação por modelo</div><div style="margin-top:8px">'+mod.map(function(x){return '<div class="kv"><span>'+esc(modelLabel(x.modelo))+'</span><b>'+brl(x.n?x.custo/x.n:0)+'</b></div>';}).join('')+'</div></div>'
+   +'</div>'
+   +'</div>'
+   +'<div class="section-title serif">Custo por pessoa</div><div class="card" style="padding:0;overflow:auto;max-height:64vh"><table><thead><tr><th>Colaborador</th><th>Setor</th><th>Interações</th><th>Custo</th><th>Médio/int.</th></tr></thead><tbody>'+pess.map(function(x){return '<tr><td style="font-weight:500">'+esc(x.nome)+'<div style="font-size:11px;color:var(--muted2)">'+esc(x.usuario)+'</div></td><td>'+esc(x.area)+'</td><td class="mono">'+num(x.n)+'</td><td class="mono">'+brl(x.custo)+'</td><td class="mono">'+brl(x.n?x.custo/x.n:0)+'</td></tr>';}).join('')+'</tbody></table></div>'
+   +'</div>';
+}
+function exportCustosCSV(){
+  var c=window._custos||{};var L=[];
+  L.push('Custo por setor');L.push('Setor;Interacoes;Custo(R$);%');
+  (c.area||[]).forEach(function(x){L.push([x.area,x.n,String(x.custo).replace('.',','),x.pct].join(';'));});
+  L.push('');L.push('Custo por pessoa');L.push('Nome;Email;Setor;Interacoes;Custo(R$)');
+  (c.pess||[]).forEach(function(x){L.push([x.nome,x.usuario,x.area,x.n,String(x.custo).replace('.',',')].join(';'));});
+  L.push('');L.push('Custo por modelo');L.push('Modelo;Interacoes;Custo(R$)');
+  (c.mod||[]).forEach(function(x){L.push([x.modelo,x.n,String(x.custo).replace('.',',')].join(';'));});
+  L.push('');L.push('Custo por mes');L.push('Mes;Interacoes;Custo(R$)');
+  (c.mes||[]).forEach(function(x){L.push([x.mes,x.n,String(x.custo).replace('.',',')].join(';'));});
+  try{var csv='﻿'+L.join('\r\n');var b=new Blob([csv],{type:'text/csv;charset=utf-8'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='custos_soul.csv';document.body.appendChild(a);a.click();setTimeout(function(){a.remove();URL.revokeObjectURL(a.href);},500);toast('Relatório CSV exportado');}catch(e){toast('Não foi possível exportar');}
+}
 
 /* ---------- helpers ---------- */
 function head(t,eye,sub){return '<div class="page-eyebrow">'+esc(eye)+'</div><div class="page-title serif">'+esc(t)+'</div><div class="page-sub">'+esc(sub)+'</div>'}
