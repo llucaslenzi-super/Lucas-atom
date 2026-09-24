@@ -188,27 +188,30 @@ function tpl(dom,area){
   if(dom==='DIRI')return pick([producao,fios,estoqueProd,opsAbertas,cobertura])();
   return faturamento();
 }
-function cost(m,ti,to){if(m.indexOf('opus')>=0)return +(0.06+rnd()*0.14).toFixed(4);if(m.indexOf('haiku')>=0)return +(0.004+rnd()*0.011).toFixed(4);return +(0.02+rnd()*0.045).toFixed(4);}
+function cost(m,ti,to){var inR=m.indexOf('opus')>=0?15:m.indexOf('haiku')>=0?0.8:3;var outR=m.indexOf('opus')>=0?75:m.indexOf('haiku')>=0?4:15;return (ti*inR+to*outR)/1e6*5.4;}
+// ---- uids existentes (para sobrescrever sem duplicar a tabela) ----
+var REPO='/home/user/Lucas-atom/plataforma-soul/seeds/interacoes_seed.json';
+var EXIST=[];try{EXIST=require(REPO).map(function(r){return r.uid;});}catch(e){}
 // ---- generate ----
-const START=new Date('2026-05-10T12:00:00Z').getTime();
-const END=new Date('2026-09-24T12:00:00Z').getTime();
+const START=new Date('2026-05-01T11:00:00Z').getTime();
+const END=new Date('2026-09-24T20:00:00Z').getTime();
 const SPAN=END-START;
 let rows=[];let cseq=0;
 U.forEach(function(us){
-  var nConv=Math.max(3,Math.round(us.w/1.8));
+  var nConv=Math.max(6,Math.round(us.w*1.6));
   for(var c=0;c<nConv;c++){
     var day=START+Math.floor(rnd()*SPAN);
     var conv='c-'+us.u.split('@')[0]+'-'+(cseq++);
-    var nmsg=ri(1,3);
+    var nmsg=ri(1,4);
     for(var k=0;k<nmsg;k++){
-      var t=new Date(day+k*ri(40,240)*1000).toISOString();
+      var t=new Date(day+k*ri(40,300)*1000).toISOString();
       var canBlock=(['Industrial','PCP','Qualidade','Logística','Compras'].indexOf(us.a)>=0);
-      var block=canBlock&&rnd()<0.30&&k===0;
+      var block=canBlock&&rnd()<0.14&&k===0;
       var T=block?bloqueio(us.a):tpl(us.dom,us.a);
-      var ti=ri(820,1750),to=block?ri(60,140):ri(180,640);
+      var ti=block?ri(700,1600):ri(3200,42000),to=block?ri(60,160):ri(280,1500);
       rows.push({
         criado_em:t, usuario:us.u, area:us.a, perfil:us.p, modelo:us.m,
-        tokens_in:ti, tokens_out:to, custo:block?+(cost(us.m,ti,to)*0.3).toFixed(4):cost(us.m,ti,to),
+        tokens_in:ti, tokens_out:to, custo:block?cost(us.m,ti,to)*0.3:cost(us.m,ti,to),
         prompt:T.prompt, resposta:T.resp, guardrails:'[]', alerta:T.alerta||'',
         fonte:T.fonte, conversa_id:conv, ip:'', dispositivo:'',
         feedback: rnd()<0.16?'up':(rnd()<0.04?'down':'')
@@ -217,15 +220,13 @@ U.forEach(function(us){
   }
 });
 rows.sort(function(a,b){return new Date(a.criado_em)-new Date(b.criado_em);});
-// split: first 42 -> updates on existing uids, rest -> inserts
-const EX=[0,1,2,3,4,5,9,10,11,18,19,20,21,22,23,27,28,29,36,37,38,39,40,41,45,46,47,54,55,56,57,58,59,63,64,65,72,73,74,75,76,77];
-var updates=[],inserts=[];
-rows.forEach(function(r,i){
-  if(i<EX.length){r.uid='i-seed-'+EX[i];updates.push(r);}
-  else{r.uid='h-'+(i);inserts.push(r);}
-});
-fs.writeFileSync(__dirname+'/updates.json',JSON.stringify(updates));
-fs.writeFileSync(__dirname+'/inserts.json',JSON.stringify(inserts));
-console.log('total',rows.length,'updates',updates.length,'inserts',inserts.length);
-var blk=rows.filter(function(r){return r.alerta==='fora_escopo';}).length;
-console.log('blocks',blk,'users',U.length);
+// ---- escala custo por mês para R$700-900 ----
+var byM={};rows.forEach(function(r){var m=String(r.criado_em).slice(0,7);(byM[m]=byM[m]||[]).push(r);});
+Object.keys(byM).forEach(function(m){var arr=byM[m];var sum=0;arr.forEach(function(r){sum+=r.custo;});var target=700+rnd()*200;var f=sum>0?target/sum:1;arr.forEach(function(r){r.custo=+(r.custo*f).toFixed(4);});});
+// ---- uid: reaproveita existentes (overwrite) + novos para o excedente ----
+rows.forEach(function(r,i){ r.uid = (i<EXIST.length)? EXIST[i] : ('g2-'+(i-EXIST.length)); });
+fs.writeFileSync(REPO,JSON.stringify(rows));
+var mm={};rows.forEach(function(r){var k=String(r.criado_em).slice(0,7);if(!mm[k])mm[k]={n:0,c:0};mm[k].n++;mm[k].c+=r.custo;});
+console.log('total',rows.length,'| overwrite',Math.min(rows.length,EXIST.length),'| novos',Math.max(0,rows.length-EXIST.length));
+Object.keys(mm).sort().forEach(function(k){console.log(k,mm[k].n,'int · R$',mm[k].c.toFixed(2));});
+var blk=rows.filter(function(r){return r.alerta==='fora_escopo';}).length;console.log('blocks',blk);
