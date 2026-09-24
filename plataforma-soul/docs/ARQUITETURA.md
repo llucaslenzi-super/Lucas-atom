@@ -14,7 +14,8 @@ reusa apenas as APIs (Claude, Nekt) e espelha padrões comprovados.
 > - **Visual Soul** (print de referência): fundo quase-preto, dourado/bronze, títulos
 >   em serifa, cards de módulo, cabeçalho "PORTAL SOUL".
 > - **Chat = cópia fiel da interface do Claude.** **Sem anexo de documentos.**
-> - **3 usuários reais + 12 mocks** (indistinguíveis na interface).
+> - **3 usuários reais + demais de exibição** (indistinguíveis na interface); 19 no total, incluindo 4 diretores.
+> - **Visual = dark mode do claude.ai** (cinza-carvão) com o amarelo/ouro Soul no lugar do laranja.
 
 ## Infra n8n
 - Instância: `https://soultextil.app.n8n.cloud`
@@ -48,6 +49,11 @@ reusa apenas as APIs (Claude, Nekt) e espelha padrões comprovados.
 | **Diretoria** (`diretoria@soultextil.com.br`) | Admin | **tudo** + tabela de auditoria/rastreabilidade |
 | **Industrial** (`industrial@soultextil.com.br`) | Operacional | estoque, clientes, pedidos, PCP, fichas técnicas, produção/OPs/fios — **kg e % apenas, NUNCA R$** (faturamento só como volume/margem %) |
 | **Financeiro** (`financeiro@soultextil.com.br`) | Operacional | faturamento (R$), contas a pagar/receber, títulos, estoque, clientes |
+
+**Roster (19 usuários em `plat_usuarios`)** — 3 logins reais + demais de exibição:
+- Reais: Lucas Lenzi (diretoria, admin) · **Luiz Fontana** (industrial) · **Max Speroni** (financeiro).
+- Diretores: **João Meurer** (Comercial) · **Natasha Wildi** (Operações) · **Thiago Bonetti** (Financeiro) · **Paulo Deschamps** (Industrial).
+- Demais por área (Comercial, PCP, Qualidade — **Ivi Constante**, Logística, Compras, TI). Só os 3 reais têm senha; os demais aparecem nas telas de admin e no histórico, mas não autenticam.
 
 ## Guardrails (automáticos, backend)
 - **PII**: mascara CPF, CNPJ, RG, telefone antes de ir ao Claude. **Nome de cliente
@@ -103,6 +109,20 @@ recolar HTML no n8n. (`plat_assets` era a abordagem antiga em chunks e está oci
   valida `exp` e `is_admin` (para `/admin/*`), sem reconferir a assinatura HMAC.
   Trade-off conhecido de performance; endurecer com verificação HMAC é o próximo passo.
 - Token = `{usuario, nome, perfil, nivel, area, is_admin, exp}`; sessão de 8h.
+
+### Histórico global (admin)
+Na aba **Histórico**, um usuário admin alterna entre "Minhas conversas" e
+**"Todos os usuários"** — a visão global agrupa por data as conversas de toda a
+organização (busca + filtro por área), reaproveitando `/api/admin/rastreabilidade`.
+
+### Seed do histórico (`seeds/interacoes_seed.json`)
+`plat_interacoes` é populada com ~190 interações realistas cobrindo ~4,5 meses
+(mai–set), para os 3 reais, diretores e demais usuários: consultas de estoque
+(kg), faturamento/títulos (R$), PCP, qualidade (%), pedidos e expedição, com
+tokens, custo e alguns bloqueios de escopo. O arquivo é carregado por um
+workflow de manutenção (Code → `fetch` do GitHub → `dataTable upsert` por `uid`);
+o gerador está em `seeds/gerar_interacoes.js`. Workflows de manutenção ficam
+arquivados após o uso.
 
 ## Identidade visual
 - Fundo `#0b0906`/`#0e0b07`; dourado `#c9a227`/`#d4af6a`; creme `#e8dcc4`; texto claro.
