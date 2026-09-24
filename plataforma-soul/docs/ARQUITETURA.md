@@ -38,7 +38,7 @@ reusa apenas as APIs (Claude, Nekt) e espelha padrões comprovados.
 | plat_governanca | `8PQFWE1zXBd8TvGo` | política, matriz de dados, comitê, incidentes, casos de uso |
 | plat_fontes | `Tm9fx22HzH2xsDjZ` | fontes de dado conectadas (por perfil) |
 | plat_solicitacoes | `gHGfaN0S9uFkoiCI` | pedidos de novo acesso (→ comitê) |
-| plat_assets | `owPD2NsQz7OLHtIS` | SPA (HTML/CSS/JS) em chunks (slug, idx, chunk) |
+| plat_assets | `owPD2NsQz7OLHtIS` | SPA em chunks — **legado/ocioso** (o SPA agora é servido via GitHub raw) |
 
 > `id` é reservado pelo n8n; a chave de negócio própria é `uid`.
 
@@ -79,13 +79,30 @@ pedidos espelho (`codtipopedido=1 AND codcliente=1` PE; `codtipopedido=2 AND cod
 clientes internos `1,157,3085,3377,22745,22748` excluídos; `dataemissao` em UTC (`DATE(SUBSTR(...,1,10))`);
 faturas `origem` GASPAR/LOJASP/MATRIZ → exibir **Gaspar (SC) / Filial SP / Filial PE**.
 
-## Workflows (`Plataforma Soul · …`)
-1. **App** — `GET /plat` serve o SPA (lê `plat_assets`).
-2. **Auth** — `POST /plat/api/login`, `/logout`, `GET /me`.
-3. **Validar Token** (sub-workflow) — valida HMAC, reusado pelos protegidos.
-4. **Chat** — `POST /plat/api/chat`, `/feedback` (guardrails → RAG Nekt → Claude → log).
-5. **Operacional** — histórico, conversa, destacar, destaques, dashboard, fontes, solicitar-fonte.
-6. **Admin** — usuários/licenças, rastreabilidade+export, governança, segurança, modelos, evolução IA.
+## Workflows (`Plataforma Soul · …`) — publicados e ativos
+| # | Workflow | ID | Endpoints (`/webhook/plat/…`) |
+|---|---|---|---|
+| 1 | **App** | `WEDZSDdlaY9Sp1NP` | `GET /plat` → serve o SPA |
+| 2 | **Auth** | `dRRnEVOFNfEbyEI6` | `POST /api/login`, `POST /api/logout`, `GET /api/me` |
+| 3 | **Chat** | `xIC5nmRAcGsZ4ba0` | `POST /api/chat` (guardrails → RAG Nekt → Claude → log) |
+| 4 | **Dados** | `5chCylZUGBeihSk9` | `GET /api/dashboard`, `/api/historico`, `/api/conversa`, `/api/fontes` · `POST /api/feedback`, `/api/destacar`, `/api/solicitar` |
+| 5 | **Admin** | `9bcS5Fm8FlNKXMKT` | `GET /api/admin/kpis`, `/api/admin/rastreabilidade`, `/api/admin/usuarios`, `/api/admin/governanca` |
+
+Fontes-fonte no repositório: `workflows/auth.ts`, `workflows/dados.ts`, `workflows/admin.ts`
+(builder do SDK n8n). Chat e App foram construídos direto no editor.
+
+### Serviço do SPA
+O workflow **App** faz `fetch` do `index.html` publicado no GitHub
+(`raw.githubusercontent.com/.../plataforma-soul/frontend/index.html`, branch de trabalho)
+e responde `text/html`. Um `git push` do front-end atualiza a plataforma na hora — sem
+recolar HTML no n8n. (`plat_assets` era a abordagem antiga em chunks e está ociosa.)
+
+### Autenticação
+- **Login/Chat**: verificação HMAC-SHA256 completa do token (assinatura + `exp`).
+- **Endpoints de dados/admin**: auth leve — decodifica o payload base64url do token,
+  valida `exp` e `is_admin` (para `/admin/*`), sem reconferir a assinatura HMAC.
+  Trade-off conhecido de performance; endurecer com verificação HMAC é o próximo passo.
+- Token = `{usuario, nome, perfil, nivel, area, is_admin, exp}`; sessão de 8h.
 
 ## Identidade visual
 - Fundo `#0b0906`/`#0e0b07`; dourado `#c9a227`/`#d4af6a`; creme `#e8dcc4`; texto claro.
