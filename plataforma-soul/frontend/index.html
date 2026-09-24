@@ -285,7 +285,7 @@ async function boot(){
 }
 function buildNav(){
   const op=[['dashboard','Dashboard','dash'],['chat','Chat','chat'],['historico','Histórico','hist'],['config','Configurações','cfg']];
-  const ad=[['rastreabilidade','Rastreabilidade','audit'],['usuarios','Usuários & Licenças','users'],['governanca','Governança','gov'],['evolucao','Evolução da IA','eir']];
+  const ad=[['rastreabilidade','Rastreabilidade','audit'],['usuarios','Usuários & Licenças','users'],['governanca','Governança','gov']];
   let h='';op.forEach(i=>h+=navItem(i));
   if(state.user.is_admin){h+='<div class="nav-sep">Administração</div>';ad.forEach(i=>h+=navItem(i));}
   document.getElementById('nav').innerHTML=h;
@@ -295,7 +295,7 @@ function go(v){state.view=v;document.querySelectorAll('.nav-item').forEach(n=>n.
   const m=document.getElementById('main');
   if(v==='chat'){renderChat(m);return;}
   m.innerHTML='<div class="page"><div style="text-align:center;padding:60px;color:var(--muted2)">Carregando…</div></div>';
-  ({dashboard:pageDashboard,historico:pageHistorico,config:pageConfig,rastreabilidade:pageRastro,usuarios:pageUsuarios,governanca:pageGov,evolucao:pageEvolucao}[v]||pageDashboard)(m);
+  ({dashboard:pageDashboard,historico:pageHistorico,config:pageConfig,rastreabilidade:pageRastro,usuarios:pageUsuarios,governanca:pageGov}[v]||pageDashboard)(m);
 }
 
 /* ---------- DASHBOARD ---------- */
@@ -306,10 +306,9 @@ async function pageDashboard(m){
   const st=d.stats||{};
   m.innerHTML='<div class="page">'
    +head('Meu Painel','Dashboard','Olá, '+esc(state.user.nome.split(' ')[0])+'. Aqui está o seu resumo de uso da plataforma.')
-   +'<div class="grid g4">'
-   +stat('Interações no mês',num(st.interacoes),'chat','+'+num(st.interacoes_semana)+' esta semana')
-   +stat('Horas economizadas',num(st.horas,1)+'h','spark','estimativa')
-   +stat('Custo consumido',brl(st.custo),'db','de '+brl(st.teto)+' do teto')
+   +'<div class="grid g3">'
+   +stat('Minhas interações',num(st.interacoes),'chat','+'+num(st.interacoes_semana)+' nos últimos 7 dias')
+   +stat('Custo consumido',brl(st.custo),'db','no período')
    +stat('Fontes liberadas',num((state.user.fontes||[]).length),'gov','no seu perfil')
    +'</div>'
    +'<div class="section-title serif">Continuar de onde parou</div>'
@@ -327,11 +326,10 @@ async function pageExec(m,d){
   const s=k.kpis||{};
   m.innerHTML='<div class="page">'
    +head('Painel Executivo','Diretoria','Visão corporativa da adoção de IA na Soul Têxtil.')
-   +'<div class="grid g4">'
-   +stat('Interações no mês',num(s.interacoes_mes),'chat',num(s.usuarios_ativos)+' usuários ativos')
-   +stat('Custo total (mês)',brl(s.custo_total),'db','de '+brl(s.teto_global)+' orçado')
+   +'<div class="grid g3">'
+   +stat('Interações (período)',num(s.interacoes_mes),'chat',num(s.usuarios_ativos)+' usuários ativos')
+   +stat('Custo total (período)',brl(s.custo_total),'db','de '+brl(s.teto_global)+' orçado')
    +stat('Alertas de segurança',num(s.alertas),'gov',num(s.bloqueios)+' bloqueios de escopo')
-   +stat('Horas economizadas',num(s.horas,0)+'h','spark','estimativa acumulada')
    +'</div>'
    +'<div class="grid g2" style="margin-top:16px">'
    +'<div class="card"><h3>Consumo por área</h3><div id="porArea" style="margin-top:12px"></div></div>'
@@ -574,22 +572,6 @@ async function pageGov(m){
    +'</div></div>';
 }
 function matTag(c){c=(c||'').toUpperCase();if(c==='PROIBIDO')return '<span class="tag danger">proibido</span>';if(c==='RESTRITO')return '<span class="tag warn">restrito</span>';if(c==='MASCARAR')return '<span class="tag warn">mascarar</span>';return '<span class="tag ok">permitido</span>'}
-
-/* ---------- ADMIN: EVOLUÇÃO ---------- */
-async function pageEvolucao(m){
-  let d={};try{d=await api('/admin/kpis')}catch(e){}
-  const s=d.kpis||{};const tot=s.interacoes_total||s.interacoes_mes||0;const meta=50000;
-  m.innerHTML='<div class="page">'+head('Evolução da IA','Roadmap','Construindo o ativo de dados para a IA proprietária da Soul.')
-   +'<div class="grid g3">'
-   +stat('Dataset em construção',num(tot)+' interações',' db','curadas e anonimizadas')
-   +stat('Avaliações humanas',num(s.avaliacoes||Math.round(tot*0.18)),'star','👍/👎 + correções')
-   +stat('Meta 1º fine-tuning',num(Math.min(100,tot/meta*100),0)+'%','spark',num(tot)+' / '+num(meta))
-   +'</div>'
-   +'<div class="card" style="margin-top:16px"><h3>Progresso rumo ao primeiro fine-tuning</h3><div class="bar" style="margin-top:12px;height:12px"><i style="width:'+Math.min(100,tot/meta*100)+'%"></i></div><div class="muted" style="font-size:12px;margin-top:8px">Toda interação, avaliação e correção humana é curada e etiquetada com anonimização automática — pronta para fine-tuning quando atingir volume.</div></div>'
-   +'<div class="section-title serif">Conexão de novas fontes de dado</div><div class="grid g3">'
-   +[['ERP Germer/Soul (SAP/MSSQL)','conectado','Fase 1'],['SharePoint','pendente','Fase 2'],['Contratos','pendente','Fase 2'],['ISO 9001','pendente','Fase 2'],['E-mail M365','pendente','Fase 3'],['Manutenção','pendente','Fase 3']].map(x=>'<div class="card"><h3>'+x[0]+'</h3><div style="margin-top:8px"><span class="tag '+(x[1]==='conectado'?'ok':'warn')+'">'+x[1]+'</span> <span class="tag">'+x[2]+'</span></div></div>').join('')
-   +'</div></div>';
-}
 
 /* ---------- helpers ---------- */
 function head(t,eye,sub){return '<div class="page-eyebrow">'+esc(eye)+'</div><div class="page-title serif">'+esc(t)+'</div><div class="page-sub">'+esc(sub)+'</div>'}
