@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#262624; --bg2:#1e1e1c; --panel:#302f2d; --panel2:#383734; --line:#413f3b;
@@ -241,7 +242,8 @@ const ICON={
  eir:'<path d="M12 2v20M2 12h20"/><circle cx="12" cy="12" r="9"/>',
  star:'<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>',
  spark:'<path d="M12 3l1.9 5.8H20l-4.9 3.6 1.9 5.8L12 14.6 7 18.2l1.9-5.8L4 8.8h6.1z"/>',
- db:'<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>'
+ db:'<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/>',
+ dl:'<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>'
 };
 function svg(p){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>'}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
@@ -408,7 +410,9 @@ function renderMsg(m,i){
     +'<button onclick="regen('+i+')">'+svg(ICON.hist)+'Regenerar</button>'
     +'<button onclick="rate('+i+',\'up\')" class="'+(m.fb==='up'?'gold':'')+'">👍</button>'
     +'<button onclick="rate('+i+',\'down\')" class="'+(m.fb==='down'?'gold':'')+'">👎</button>'
-    +'<button onclick="destacar('+i+')">'+svg(ICON.star)+'Destacar</button></div>';
+    +'<button onclick="destacar('+i+')">'+svg(ICON.star)+'Destacar</button>'
+    +'<button onclick="baixarPlanilhaMsg('+i+')" title="Baixar planilha (Excel)">'+svg(ICON.dl)+'Planilha</button>'
+    +'<button onclick="baixarDocMsg('+i+')" title="Baixar Word">'+svg(ICON.dl)+'Word</button></div>';
   return '<div class="msg ai"><div class="who"><div class="a">S</div><div class="n">Soul IA</div></div><div class="body">'+(window.marked?marked.parse(m.text||''):esc(m.text))+'</div>'+src+meta+'</div>';
 }
 function modelLabel(id){const x=MODELOS.find(y=>y.id===id);return x?x.label:(id||'')}
@@ -504,7 +508,8 @@ function openConvGlobal(id){
     body+='<div class="section-title serif" style="font-size:14px">Pergunta</div><div class="card" style="white-space:pre-wrap;font-size:13px">'+esc(r.prompt)+'</div>';
     body+='<div class="section-title serif" style="font-size:14px">Resposta · '+esc(modelLabel(r.modelo))+' · '+brl(r.custo)+(r.alerta?' · '+alertTag(r.alerta):'')+'</div><div class="card" style="font-size:13px">'+(window.marked?marked.parse(r.resposta||''):esc(r.resposta))+'</div>';
   });
-  openModal('<div class="page-eyebrow">Conversa · auditoria</div><div class="page-title serif" style="font-size:20px">'+esc(u.usuario||'')+'</div><div class="muted" style="font-size:12px;margin-bottom:6px">'+esc(u.area||'')+' · '+num(rows.length)+' interação(ões)</div>'+body);
+  window._expConv=rows;
+  openModal('<div class="page-eyebrow">Conversa · auditoria</div><div class="page-title serif" style="font-size:20px">'+esc(u.usuario||'')+'</div><div class="muted" style="font-size:12px;margin-bottom:6px">'+esc(u.area||'')+' · '+num(rows.length)+' interação(ões)</div><div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn sm" onclick="baixarPlanilhaConv()">'+svg(ICON.dl)+'Planilha</button><button class="btn sm ghost" onclick="baixarDocConv()">'+svg(ICON.dl)+'Word</button></div>'+body);
 }
 
 /* ---------- CONFIG ---------- */
@@ -614,6 +619,55 @@ function exportCustosCSV(){
   L.push('');L.push('Custo por mes');L.push('Mes;Interacoes;Custo(R$)');
   (c.mes||[]).forEach(function(x){L.push([x.mes,x.n,String(x.custo).replace('.',',')].join(';'));});
   try{var csv='﻿'+L.join('\r\n');var b=new Blob([csv],{type:'text/csv;charset=utf-8'});var a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='custos_soul.csv';document.body.appendChild(a);a.click();setTimeout(function(){a.remove();URL.revokeObjectURL(a.href);},500);toast('Relatório CSV exportado');}catch(e){toast('Não foi possível exportar');}
+}
+
+/* ---------- EXPORT (planilha / Word) ---------- */
+function mdTables(text){
+  var out=[],lines=String(text||'').split('\n'),i=0;
+  function cells(l){var p=l.split('|').map(function(s){return s.trim().replace(/\*\*/g,'');});return p.filter(function(s,idx,a){return !((idx===0&&s==='')||(idx===a.length-1&&s===''));});}
+  while(i<lines.length){
+    if(/^\s*\|.*\|\s*$/.test(lines[i])&&i+1<lines.length&&/^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i+1])&&lines[i+1].indexOf('-')>=0){
+      var header=cells(lines[i]),rows=[];i+=2;
+      while(i<lines.length&&/^\s*\|.*\|\s*$/.test(lines[i])){rows.push(cells(lines[i]));i++;}
+      out.push({header:header,rows:rows});
+    } else i++;
+  }
+  return out;
+}
+function dlBlob(name,blob){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){a.remove();URL.revokeObjectURL(a.href);},600);}
+function dlXlsx(name,sheets){
+  if(!window.XLSX){toast('Carregando Excel… tente de novo');return;}
+  var wb=XLSX.utils.book_new();
+  sheets.forEach(function(s,idx){var ws=XLSX.utils.aoa_to_sheet(s.aoa);XLSX.utils.book_append_sheet(wb,ws,String(s.name||('Aba'+(idx+1))).slice(0,31));});
+  XLSX.writeFile(wb,name);
+}
+function docHTML(titulo,bodyHtml){
+  return '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>'+esc(titulo)+'</title><style>body{font-family:Calibri,Arial,sans-serif;color:#222;font-size:11pt}h1,h2,h3{font-family:Georgia,serif;color:#8a6f1a}table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #bbb;padding:5px 8px;font-size:10pt}th{background:#f0ead6;text-align:left}.eyebrow{letter-spacing:.2em;font-size:9pt;color:#b8901f;text-transform:uppercase}</style></head><body><div class="eyebrow">Portal Soul · Soul Têxtil</div><h1>'+esc(titulo)+'</h1>'+bodyHtml+'<p style="margin-top:24px;font-size:8pt;color:#999">Gerado pela Plataforma Soul em '+new Date().toLocaleString('pt-BR')+'</p></body></html>';
+}
+function dlDoc(name,titulo,bodyHtml){dlBlob(name,new Blob(['﻿'+docHTML(titulo,bodyHtml)],{type:'application/msword'}));}
+function baixarPlanilhaMsg(i){
+  var m=state.messages[i];var tbls=mdTables(m.text);var sheets=[];
+  tbls.forEach(function(t,idx){sheets.push({name:'Tabela '+(idx+1),aoa:[t.header].concat(t.rows)});});
+  if(!sheets.length){var lines=String(m.text||'').split('\n').filter(function(l){return l.trim();}).map(function(l){return [l.replace(/[#*`]/g,'')];});sheets.push({name:'Resposta',aoa:[['Conteúdo']].concat(lines)});}
+  dlXlsx('soul_resposta.xlsx',sheets);toast('Planilha exportada');
+}
+function baixarDocMsg(i){
+  var m=state.messages[i];var body=(window.marked?marked.parse(m.text||''):esc(m.text));
+  var meta='<p class="eyebrow">'+esc(modelLabel(m.modelo))+(m.custo!=null?' · '+brl(m.custo):'')+(m.fonte?' · '+esc(m.fonte):'')+'</p>';
+  dlDoc('soul_resposta.doc','Resposta · Soul IA',meta+body);toast('Word exportado');
+}
+function baixarPlanilhaConv(){
+  var c=window._expConv;if(!c||!c.length){toast('Sem dados');return;}
+  var aoa=[['Data','Usuário','Área','Pergunta','Resposta','Modelo','Custo (R$)']];
+  c.forEach(function(r){aoa.push([fmtDT(r.criado_em),r.usuario||'',r.area||'',String(r.prompt||''),String(r.resposta||'').replace(/[#*|]/g,' '),modelLabel(r.modelo),Number(r.custo||0)]);});
+  var sheets=[{name:'Conversa',aoa:aoa}];
+  c.forEach(function(r,idx){mdTables(r.resposta).forEach(function(t,ti){sheets.push({name:'T'+(idx+1)+'.'+(ti+1),aoa:[t.header].concat(t.rows)});});});
+  dlXlsx('soul_conversa.xlsx',sheets);toast('Planilha exportada');
+}
+function baixarDocConv(){
+  var c=window._expConv;if(!c||!c.length){toast('Sem dados');return;}
+  var body='';c.forEach(function(r){body+='<h3>'+esc(String(r.prompt||''))+'</h3>'+(window.marked?marked.parse(r.resposta||''):esc(r.resposta))+'<p class="eyebrow">'+esc(modelLabel(r.modelo))+(r.custo!=null?' · '+brl(r.custo):'')+'</p><hr>';});
+  dlDoc('soul_conversa.doc','Conversa · '+(((c[0]&&c[0].usuario)||'Soul')),body);toast('Word exportado');
 }
 
 /* ---------- helpers ---------- */
