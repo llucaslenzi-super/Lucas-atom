@@ -65,37 +65,50 @@ reusa apenas as APIs (Claude, Nekt) e espelha padrões comprovados.
   configurável na matriz de dados).
 - Toda ativação de guardrail é registrada em `plat_interacoes.guardrails` + `alerta`.
 
-## Mapa Nekt por ferramenta (fonte: cliente; confirmar colunas via information_schema)
+## Chat = agente text-to-SQL sobre a Nekt (qualquer pergunta)
 Camadas: `nekt_raw.mssql_{gaspar|loja_sp|matriz}_dbo_*` (cru por filial) · `nekt_service`/`nekt_trusted` (views curadas).
 
-| Ferramenta (chat) | Fonte principal | Perfil |
-|---|---|---|
-| consultar_estoque_produto | `mssql_gaspar_dbo_estoque_nr_peca` + `produtos` + `grade_produtos` | Industrial |
-| status_op_tinturaria | view `gaspar_pcp_tinturaria_resposta1_nivel_1` | Industrial |
-| status_op_tecelagem | `mssql_gaspar_dbo_op_tecelagem` + view `gaspar_pcp_tecelagem_resposta3_nivel_2` | Industrial |
-| cobertura_fio | `estoque_local` + `movimentos_estoque` + `op_tecelagem_entrada_fios` | Industrial |
-| pedidos_em_aberto | `mssql_{filial}_dbo_pedidos_venda_capa/itens` | Industrial |
-| reclamacoes_produto | `atendimento` + `atendimento_itens` + `defeitos` | Industrial |
-| faturamento | `nekt_service.faturas_unificadas_completo` | Financeiro (Industrial só kg/%) |
-| contas_pagar / titulos_vencidos | `mssql_{filial}_dbo_cp_documentos` | Financeiro |
-| contas_receber | `mssql_{filial}_dbo_cr_documentos` | Financeiro |
+O chat **não** usa mais um conjunto fixo de ferramentas. Para qualquer pergunta, o Claude
+(Sonnet) gera **uma consulta SQL** (Athena/Trino) sobre as tabelas liberadas para o perfil,
+executa via `sql-query` da Nekt e responde a partir dos dados reais. Se o SQL falhar, o
+erro do Athena volta ao Claude, que **reescreve a consulta** (auto-correção, 1 tentativa);
+persistindo a falha, responde com mensagem amigável. Código e detalhes em
+`workflows/chat/` (`01-prep` … `06-falha-dados` + `README.md`).
 
-Armadilhas travadas no SQL: `estoque_nr_peca.situacao=1` (real); Qualidade A `codlocal IN (1,55) AND revisao=1`;
-pedidos espelho (`codtipopedido=1 AND codcliente=1` PE; `codtipopedido=2 AND codcliente=3085`) excluídos;
-clientes internos `1,157,3085,3377,22745,22748` excluídos; `dataemissao` em UTC (`DATE(SUBSTR(...,1,10))`);
-faturas `origem` GASPAR/LOJASP/MATRIZ → exibir **Gaspar (SC) / Filial SP / Filial PE**.
+**Catálogo de tabelas por perfil** (o system prompt do planner só recebe o catálogo do perfil;
+`Rotear` valida o SQL contra a mesma lista):
+
+| Perfil | Escopo | Tabelas |
+|---|---|---|
+| **Industrial / Qualidade** | kg, peças, % — **nunca R$** | produtos, estoque_nr_peca, estoque_local, estoque_local_lote_fios, movimentos_estoque, grade_produtos, ficha_tecnica_produtos_composicao, pedidos_venda_capa/itens, op_tecelagem(+entrada_fios), op_tint_capa/item(+pecas/_separadas/_pedidos), fatura_capa/itens (só quantidades), clientes (só nome/cidade) |
+| **Financeiro / Comercial** | R$ e kg | nekt_service.faturas_unificadas_completo, cr_documentos, cp_documentos, cr_lancamentos, cp_lancamentos, credito_cliente, despesas(+subgrupos), cp_documentos_despesas/_centro_custo_conta_contabil/_tributos, baixa_cp_contra_cr(+lancto_cp/_cr), nota_fiscal_capa, nota_fiscal_eletronica_eventos, entradas_itens_lancamentos_saldos, cad_tear, clientes, fornecedores |
+| **Diretoria / admin** | tudo (R$ e kg) | catálogo Industrial + Financeiro **e** qualquer tabela de `nekt_raw`/`nekt_service`/`nekt_trusted` |
+
+Tabelas do mapeamento do cliente sem sync no warehouse foram omitidas (nota_fiscal_duplicatas,
+apontamento_producao_*, ceps_transportadora, cp/cr_lancamentos_centro_custo_conta_contabil,
+despesas_orcamento).
+
+**Segurança do SQL (`Rotear` + `Aplicar Reparo`)**: apenas `SELECT`/`WITH`, uma instrução, sem
+DDL/DML, apenas schemas `nekt_*`, apenas tabelas do perfil, bloqueio de colunas monetárias para
+perfis sem R$, `LIMIT` obrigatório. **`Parse Dados`** ainda remove colunas de PII (sempre) e de
+R$ (perfis sem permissão) antes de os dados chegarem ao Claude.
+
+Convenções de dado no catálogo: estoque de peças acabadas `situacao=1 AND revisao=1 AND codlocal IN (1,55)`;
+nome limpo do produto `TRIM(SPLIT_PART(descricao,'#',1))`; faturas `origem` GASPAR/LOJASP/MATRIZ →
+exibir **Gaspar (SC) / Filial SP / Filial PE**; joins com `CAST(chave AS VARCHAR)`.
 
 ## Workflows (`Plataforma Soul · …`) — publicados e ativos
 | # | Workflow | ID | Endpoints (`/webhook/plat/…`) |
 |---|---|---|---|
 | 1 | **App** | `WEDZSDdlaY9Sp1NP` | `GET /plat` → serve o SPA |
 | 2 | **Auth** | `dRRnEVOFNfEbyEI6` | `POST /api/login`, `POST /api/logout`, `GET /api/me` |
-| 3 | **Chat** | `xIC5nmRAcGsZ4ba0` | `POST /api/chat` (guardrails → RAG Nekt → Claude → log) |
+| 3 | **Chat** | `xIC5nmRAcGsZ4ba0` | `POST /api/chat` (guardrails → **agente text-to-SQL** na Nekt c/ auto-correção → Claude → log) |
 | 4 | **Dados** | `5chCylZUGBeihSk9` | `GET /api/dashboard`, `/api/historico`, `/api/conversa`, `/api/fontes` · `POST /api/feedback`, `/api/destacar`, `/api/solicitar` |
 | 5 | **Admin** | `9bcS5Fm8FlNKXMKT` | `GET /api/admin/kpis`, `/api/admin/rastreabilidade`, `/api/admin/usuarios`, `/api/admin/governanca` |
 
 Fontes-fonte no repositório: `workflows/auth.ts`, `workflows/dados.ts`, `workflows/admin.ts`
-(builder do SDK n8n). Chat e App foram construídos direto no editor.
+(builder do SDK n8n) e `workflows/chat/` (código dos nós Code do agente text-to-SQL +
+README do grafo). App foi construído direto no editor.
 
 ### Serviço do SPA
 O workflow **App** faz `fetch` do `index.html` publicado no GitHub
