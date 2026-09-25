@@ -270,12 +270,14 @@ document.getElementById('loginForm').onsubmit=async e=>{
   }catch(x){err.textContent='Erro de conexão.';}
   b.textContent='Entrar';b.disabled=false;
 };
-function doLogout(){clearToken();state.user=null;document.getElementById('app').classList.remove('on');document.getElementById('login').style.display='flex';}
+function resetSessionState(){state.convId=null;state.messages=[];state.view='dashboard';state.sending=false;try{_histRows=[];_histConvs=[];window._expConv=null;window._histData=null;}catch(_){}}
+function doLogout(){clearToken();state.user=null;resetSessionState();document.getElementById('app').classList.remove('on');document.getElementById('login').style.display='flex';}
 document.getElementById('logoutBtn').onclick=async()=>{try{await api('/logout',{method:'POST',body:'{}'})}catch(e){};doLogout();};
 
 async function boot(){
   let me;try{me=await api('/me')}catch(e){doLogout();return;}
   if(!me||!me.sucesso){doLogout();return;}
+  resetSessionState();
   state.user=me;state.modelo='claude-sonnet-5';
   document.getElementById('login').style.display='none';
   document.getElementById('app').classList.add('on');

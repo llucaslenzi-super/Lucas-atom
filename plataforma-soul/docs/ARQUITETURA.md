@@ -122,6 +122,11 @@ recolar HTML no n8n. (`plat_assets` era a abordagem antiga em chunks e está oci
   valida `exp` e `is_admin` (para `/admin/*`), sem reconferir a assinatura HMAC.
   Trade-off conhecido de performance; endurecer com verificação HMAC é o próximo passo.
 - Token = `{usuario, nome, perfil, nivel, area, is_admin, exp}`; sessão de 8h.
+- **Isolamento por usuário**: os endpoints `/dashboard`, `/historico` e `/conversa` filtram
+  por `usuario` do token (um usuário só vê as próprias conversas; admin usa o toggle
+  global do Histórico). No front, `resetSessionState()` limpa `state.messages`/`convId`
+  e caches de histórico no login e no logout — evita que a conversa de um usuário
+  apareça para outro ao trocar de login na mesma aba.
 
 ### Histórico global (admin)
 Na aba **Histórico**, um usuário admin alterna entre "Minhas conversas" e
