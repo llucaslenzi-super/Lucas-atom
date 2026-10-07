@@ -271,6 +271,12 @@ def main():
         )
     print(f">> Coluna de CNPJ: '{col}'")
 
+    # planilha so com a coluna de CNPJ e sem cabecalho vira "Unnamed: 0" -> renomeia
+    if str(col).startswith("Unnamed"):
+        df = df.rename(columns={col: "CNPJ"})
+        col = "CNPJ"
+        print(">> (coluna sem nome renomeada para 'CNPJ' na saida)")
+
     saida = args.saida or (os.path.splitext(args.entrada)[0] + "_opencnpj.xlsx")
 
     session = requests.Session()
