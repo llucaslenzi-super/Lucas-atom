@@ -42,20 +42,21 @@ const m={}; cat.forEach(function(c){ m[String(c.codgrade)] = c; });
 var coresIds=[]; try{ coresIds = fich.cores_json ? JSON.parse(fich.cores_json) : []; }catch(e){ coresIds=[]; }
 var cores;
 if (coresIds.length){
-  cores = coresIds.map(function(cg){ var c=m[String(cg)]||{}; return {cod:cg, nome:c.nome||'', hex:c.hex||'#FFFFFF', borda:!!c.tem_borda}; });
+  cores = coresIds.map(function(cg){ var c=m[String(cg)]||{}; return {cod:cg, nome:c.nome||'', hex:c.hex||'#FFFFFF', borda:!!c.tem_borda, imagem:c.imagem||''}; });
 } else {
   prod.sort(function(a,b){ return Number(a.ordem)-Number(b.ordem); });
-  cores = prod.map(function(pc){ var c=m[String(pc.codgrade)]||{}; return {cod:pc.codgrade, nome:c.nome||'', hex:c.hex||'#FFFFFF', borda:!!c.tem_borda}; });
+  cores = prod.map(function(pc){ var c=m[String(pc.codgrade)]||{}; return {cod:pc.codgrade, nome:c.nome||'', hex:c.hex||'#FFFFFF', borda:!!c.tem_borda, imagem:c.imagem||''}; });
 }
 
-// ---- ícones padrão Soul (fixos v1; por produto depois via ft_produto_icones) ----
-const icones = [
-  {id:'easycare',     label:'Easy Care'},
-  {id:'elasticidade', label:'Elasticidade'},
-  {id:'shape',        label:'Shape'},
-  {id:'toquemacio',   label:'Toque Macio'},
-  {id:'conforto',     label:'Conforto'}
-];
+// ---- ícones do meio: do cadastro (icones_json) com fallback para os 5 padrão ----
+const ICON_LABELS = {easycare:'Easy Care',elasticidade:'Elasticidade',shape:'Shape',toquemacio:'Toque Macio',conforto:'Conforto'};
+var icItems=[]; try{ icItems = fich.icones_json ? JSON.parse(fich.icones_json) : []; }catch(e){ icItems=[]; }
+var icones;
+if (icItems.length){
+  icones = icItems.map(function(it){ if(typeof it==='string'){ return {id:it, label:ICON_LABELS[it]||it}; } return {id:it.id, label:it.label||ICON_LABELS[it.id]||it.id}; });
+} else {
+  icones = [{id:'easycare',label:'Easy Care'},{id:'elasticidade',label:'Elasticidade'},{id:'shape',label:'Shape'},{id:'toquemacio',label:'Toque Macio'},{id:'conforto',label:'Conforto'}];
+}
 
 // ---- cartela: posições exatas do mapa (14 amostras) ----
 const SW_X = [36.30,73.96,111.73,149.39,187.06,224.73,262.39,300.06,338.58,374.84,412.04,449.25,486.46,523.67];
@@ -64,7 +65,10 @@ let swHtml='';
 for (let i=0;i<cores.length && i<14;i++){
   const c=cores[i]; const x=SW_X[i]!=null?SW_X[i]:(36.30+i*37.5); const lx=LG_X[i]!=null?LG_X[i]:x+14;
   const top = (i===8)?638.59:638.33;
-  const style = c.borda ? 'background:#fff;border:1.5pt solid #000;' : ('background:'+c.hex+';');
+  var style;
+  if (c.imagem){ style = "background-image:url('"+BASE+encodeURIComponent(c.imagem)+"');background-size:cover;background-position:center;"; }
+  else if (c.borda){ style = 'background:#fff;border:1.5pt solid #000;'; }
+  else { style = 'background:'+c.hex+';'; }
   swHtml += '<div class="sw" style="left:'+x+'pt;top:'+top+'pt;'+style+'"></div>';
   const nm = esc(c.nome).replace(/ /g,'<br>'); // nomes de 2 palavras quebram
   swHtml += '<div class="abs ctr" style="left:'+lx+'pt;top:672.2pt;width:40pt"><div class="t-colcode">'+esc(c.cod)+'</div><div class="t-colname">'+nm+'</div></div>';
@@ -82,17 +86,28 @@ if (benef.length){
   benHtml += '</div>';
 }
 
-// ---- ícones (faixa Z7) ----
-const IC_X=[164.53,217.89,270.51,319.25,372.58], IC_Y=[717.43,720.05,719.37,721.10,717.98], IC_W=[56.27,55.52,56.27,55.52,62.27], IC_H=[57.02,55.52,56.27,55.52,62.27];
-const LEG_CX=[192.79,245.74,298.65,349.01,403.54], LEG_TOP=[763.73,762.98,765.82,766.82,766.83];
-const DIV_X=[218.86,276.58,319.73,377.35];
-let icHtml='';
-for (let i=0;i<icones.length && i<5;i++){
-  icHtml += '<img class="abs" src="'+BASE+'icon_'+icones[i].id+'.png" style="left:'+IC_X[i]+'pt;top:'+IC_Y[i]+'pt;width:'+IC_W[i]+'pt;height:'+IC_H[i]+'pt">';
-  icHtml += '<div class="abs t-iconleg ctr" style="left:'+LEG_CX[i]+'pt;top:'+LEG_TOP[i]+'pt;width:72pt">'+esc(icones[i].label)+'</div>';
+// ---- ícones do meio (faixa Z7): default 5 = posições exatas do mapa; custom = centralizado ----
+var isDef5 = icones.length===5 && icones[0].id==='easycare' && icones[1].id==='elasticidade' && icones[2].id==='shape' && icones[3].id==='toquemacio' && icones[4].id==='conforto';
+let icHtml='', icDiv='';
+if (isDef5){
+  const IC_X=[164.53,217.89,270.51,319.25,372.58], IC_Y=[717.43,720.05,719.37,721.10,717.98], IC_W=[56.27,55.52,56.27,55.52,62.27], IC_H=[57.02,55.52,56.27,55.52,62.27];
+  const LEG_CX=[192.79,245.74,298.65,349.01,403.54], LEG_TOP=[763.73,762.98,765.82,766.82,766.83];
+  const DIV_X=[218.86,276.58,319.73,377.35];
+  for (let i=0;i<5;i++){
+    icHtml += '<img class="abs" src="'+BASE+'icon_'+icones[i].id+'.png" style="left:'+IC_X[i]+'pt;top:'+IC_Y[i]+'pt;width:'+IC_W[i]+'pt;height:'+IC_H[i]+'pt">';
+    icHtml += '<div class="abs t-iconleg ctr" style="left:'+LEG_CX[i]+'pt;top:'+LEG_TOP[i]+'pt;width:72pt">'+esc(icones[i].label)+'</div>';
+  }
+  for (let i=0;i<DIV_X.length;i++){ icDiv += '<div class="vdiv" style="left:'+DIV_X[i]+'pt;top:733.16pt;height:35.36pt"></div>'; }
+} else {
+  var CX=297.75, SLOT=52.72, S=56, ICTOP=719, LEGTOP=764.5, N=icones.length;
+  var c0 = CX - (N-1)*SLOT/2;
+  for (let i=0;i<N;i++){
+    var ctr = c0 + i*SLOT;
+    icHtml += '<img class="abs" src="'+BASE+'icon_'+icones[i].id+'.png" style="left:'+(ctr-S/2)+'pt;top:'+ICTOP+'pt;width:'+S+'pt;height:'+S+'pt;object-fit:contain">';
+    icHtml += '<div class="abs t-iconleg ctr" style="left:'+ctr+'pt;top:'+LEGTOP+'pt;width:72pt">'+esc(icones[i].label)+'</div>';
+  }
+  for (let i=0;i<N-1;i++){ var dx=c0+i*SLOT+SLOT/2; icDiv += '<div class="vdiv" style="left:'+dx+'pt;top:733.16pt;height:35.36pt"></div>'; }
 }
-let icDiv='';
-for (let i=0;i<DIV_X.length;i++){ icDiv += '<div class="vdiv" style="left:'+DIV_X[i]+'pt;top:733.16pt;height:35.36pt"></div>'; }
 
 const html =
 '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">'
@@ -147,12 +162,15 @@ const html =
 +'<div class="abs foot-band"></div>'
 +'<div class="abs folha-clip"><img src="'+BASE+'folha.png"></div>'
 +'<div class="abs t-foot" style="left:117.80pt;top:815pt">Produto desenvolvido com<br>tecnologia e responsabilidade</div>'
-+'<div class="vdiv" style="left:221.44pt;top:815.03pt;height:19.09pt"></div>'
-+'<div class="abs t-foot" style="left:238pt;top:820.5pt">&#64;soultextil</div>'
-+'<div class="vdiv" style="left:298.33pt;top:815.03pt;height:19.09pt"></div>'
-+'<div class="abs t-foot" style="left:315pt;top:820.5pt">www.soultextil.com.br</div>'
-+'<div class="vdiv" style="left:409.97pt;top:813.90pt;height:19.09pt"></div>'
-+'<div class="abs t-foot" style="left:426pt;top:820.5pt">0800 278 0018</div>'
++'<div class="vdiv" style="left:221.0pt;top:815.03pt;height:19.09pt"></div>'
++'<img class="abs" src="'+BASE+'rodape_instagram.png" style="left:227.25pt;top:816.25pt;width:15.5pt;height:15.5pt">'
++'<div class="abs t-foot" style="left:252pt;top:820.5pt">&#64;soultextil</div>'
++'<div class="vdiv" style="left:297.8pt;top:815.03pt;height:19.09pt"></div>'
++'<img class="abs" src="'+BASE+'rodape_globe.png" style="left:302pt;top:816pt;width:16pt;height:16pt">'
++'<div class="abs t-foot" style="left:328.7pt;top:820.5pt">www.soultextil.com.br</div>'
++'<div class="vdiv" style="left:409.4pt;top:813.90pt;height:19.09pt"></div>'
++'<img class="abs" src="'+BASE+'rodape_phone.png" style="left:414.75pt;top:816pt;width:14.5pt;height:16pt">'
++'<div class="abs t-foot" style="left:439.1pt;top:820.5pt">0800 278 0018</div>'
 +'</div></body></html>';
 
 return [{ json: { html: html } }];
