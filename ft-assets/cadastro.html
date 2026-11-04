@@ -80,6 +80,10 @@
   .toast.show{opacity:1}.toast.ok{background:var(--ok)}.toast.bad{background:var(--bad)}
   .spin{display:inline-block;width:14px;height:14px;border:2px solid #fff6;border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
   @keyframes sp{to{transform:rotate(360deg)}}
+  .erp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+  .erp-item{background:#faf8f3;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .erp-item .l{font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);font-weight:700}
+  .erp-item .v{font-size:14px;font-weight:600;margin-top:2px;word-break:break-word}
   .hidden{display:none!important}
 </style>
 </head>
@@ -120,6 +124,10 @@
     </div>
     <div class="ed-cols">
       <div class="ed-left">
+        <div class="sec">
+          <h3>Dados técnicos (do ERP) <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400">— automáticos, entram na ficha</span></h3>
+          <div class="erp-grid" id="erpGrid"><span class="muted">Carregando...</span></div>
+        </div>
         <div class="sec">
           <h3>Textos da ficha <span class="saved" id="sv-txt">salvo ✓</span></h3>
           <div class="fieldrow">
@@ -232,12 +240,15 @@
   function openEditor(cod){
     cod=String(cod).replace(/[^0-9A-Za-z]/g,''); state.cod=cod;
     $('edTtl').textContent='Carregando...'; $('edCod').textContent='Produto '+cod; show('editor');
+    $('erpGrid').innerHTML='<span class="muted">Carregando...</span>';
     Promise.all([
       get(API+'/ft-cad/cores-produto?codproduto='+encodeURIComponent(cod)),
       get(API+'/ft-cad/read?table=ft_icones_catalogo'),
-      get(API+'/ft-cad/read?table=ft_fichas')
+      get(API+'/ft-cad/read?table=ft_fichas'),
+      get(API+'/ft-cad/produto-dados?codproduto='+encodeURIComponent(cod))
     ]).then(function(res){
-      var cr=res[0]||{}, icons=res[1]||[], fichas=res[2]||[];
+      var cr=res[0]||{}, icons=res[1]||[], fichas=res[2]||[], pd=res[3]||{};
+      renderErp(pd);
       state.cores=(cr.cores||[]).map(function(c){return c;});
       state.icones=(Array.isArray(icons)?icons:[]).filter(function(i){return (i.grupo||'meio')==='meio'||i.grupo==null;}).map(function(i){i._sel=false;i._pos=0;return i;});
       var fich=(Array.isArray(fichas)?fichas:[]).filter(function(f){return String(f.codproduto)===String(cod);})[0]||{};
@@ -261,6 +272,17 @@
     }).catch(function(){ $('edTtl').textContent='Erro'; toast('Erro ao carregar produto','bad'); });
   }
   $('btnBack').addEventListener('click', function(){ show('painel'); loadPainel(); });
+
+  function renderErp(pd){
+    pd=pd||{};
+    function fmt(v){return (v===undefined||v===null||String(v).trim()==='')?'—':v;}
+    var larg=pd.largramada&&Number(pd.largramada)>0?(Number(pd.largramada)/100).toFixed(2).replace('.',',')+'m':'—';
+    var gram=pd.gramramada&&Number(pd.gramramada)>0?pd.gramramada+'g/m²':'—';
+    var peso=pd.pesopadrao&&Number(pd.pesopadrao)>0?Math.round(Number(pd.pesopadrao))+'KG':'—';
+    var barca=(pd.barca&&Number(pd.barca)>0)?Math.round(Number(pd.barca))+'KG':((pd.pesopadrao&&pd.qtdemultipla&&Number(pd.qtdemultipla)>0)?Math.round(Number(pd.pesopadrao)*Number(pd.qtdemultipla))+'KG':'—');
+    var items=[['Descrição ERP',fmt(pd.descricao)],['Composição',fmt(pd.composicao)],['Largura',larg],['Gramatura',gram],['Rendimento',fmt(pd.rendimento)],['Peso médio',peso],['Barca (ERP)',barca],['Característica',fmt(pd.caracteristica)]];
+    $('erpGrid').innerHTML=items.map(function(it){return '<div class="erp-item"><div class="l">'+it[0]+'</div><div class="v">'+esc(it[1])+'</div></div>';}).join('');
+  }
 
   function renderList(listEl,arr){
     listEl.innerHTML='';
