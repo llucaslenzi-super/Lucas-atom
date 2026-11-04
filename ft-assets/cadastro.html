@@ -84,6 +84,9 @@
   .erp-item{background:#faf8f3;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
   .erp-item .l{font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);font-weight:700}
   .erp-item .v{font-size:14px;font-weight:600;margin-top:2px;word-break:break-word}
+  .rod-row{display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+  .rod-img{width:44px;height:44px;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:#faf8f3;padding:5px}
+  .rod-f{flex:1;min-width:180px}
   .hidden{display:none!important}
 </style>
 </head>
@@ -108,6 +111,7 @@
         <button data-f="completa">✅ Completa</button>
       </div>
       <button class="btn ghost sm" id="btnRefresh">↻ Atualizar</button>
+      <button class="btn ghost sm" id="btnRodape">⚙ Rodapé</button>
     </div>
     <div class="grid" id="painelGrid"></div>
     <p class="muted" id="painelMsg" style="padding:20px;text-align:center">Carregando produtos...</p>
@@ -121,6 +125,7 @@
       <div class="sp" style="flex:1"></div>
       <button class="btn" id="btnSaveAll">💾 Salvar tudo</button>
       <button class="btn cream" id="btnPreview">↻ Atualizar preview</button>
+      <button class="btn ghost" id="btnPdf">📄 Gerar PDF</button>
     </div>
     <div class="ed-cols">
       <div class="ed-left">
@@ -169,6 +174,37 @@
       </div>
       <div class="ed-right">
         <div class="sec" style="padding:10px"><iframe class="preview-frame" id="pdfFrame" title="preview"></iframe></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RODAPE -->
+  <div class="view" id="view-rodape">
+    <div class="ed-head">
+      <button class="btn ghost sm" id="btnBackR">← Painel</button>
+      <div><div class="ttl">Rodapé da ficha</div><div class="cod">Global — vale para todas as fichas</div></div>
+      <div class="sp" style="flex:1"></div>
+      <button class="btn" id="btnSaveRodape">💾 Salvar rodapé</button>
+    </div>
+    <div class="sec">
+      <p class="muted" style="margin-bottom:16px">Troque a imagem e o texto de cada ícone do rodapé. Vale para todas as fichas geradas.</p>
+      <div class="rod-row">
+        <img class="rod-img" id="rimg_instagram" alt="">
+        <div class="rod-f"><label>Instagram (texto)</label><input type="text" id="rtxt_instagram" placeholder="@soultextil"></div>
+        <button class="btn ghost sm filebtn">📎 Imagem<input type="file" id="rfile_instagram" accept="image/png,image/jpeg"></button>
+        <span class="muted" id="rfn_instagram">—</span>
+      </div>
+      <div class="rod-row">
+        <img class="rod-img" id="rimg_site" alt="">
+        <div class="rod-f"><label>Site (texto)</label><input type="text" id="rtxt_site" placeholder="www.soultextil.com.br"></div>
+        <button class="btn ghost sm filebtn">📎 Imagem<input type="file" id="rfile_site" accept="image/png,image/jpeg"></button>
+        <span class="muted" id="rfn_site">—</span>
+      </div>
+      <div class="rod-row">
+        <img class="rod-img" id="rimg_telefone" alt="">
+        <div class="rod-f"><label>Telefone (texto)</label><input type="text" id="rtxt_telefone" placeholder="0800 278 0018"></div>
+        <button class="btn ghost sm filebtn">📎 Imagem<input type="file" id="rfile_telefone" accept="image/png,image/jpeg"></button>
+        <span class="muted" id="rfn_telefone">—</span>
       </div>
     </div>
   </div>
@@ -389,9 +425,35 @@
       .catch(function(){$('btnSaveAll').innerHTML='💾 Salvar tudo';toast('Erro ao salvar','bad');throw new Error('save');});
   }
   function markSaved(){var s=$('sv-txt');s.classList.add('on');setTimeout(function(){s.classList.remove('on');},1800);}
-  function refreshPreview(){$('pdfFrame').src=API+'/ficha?codproduto='+encodeURIComponent(state.cod)+'&t='+Date.now();}
+  function refreshPreview(){$('pdfFrame').src=API+'/ficha?codproduto='+encodeURIComponent(state.cod)+'&preview=1&t='+Date.now();}
   $('btnSaveAll').addEventListener('click',function(){saveAll().then(function(){refreshPreview();}).catch(function(){});});
   $('btnPreview').addEventListener('click',function(){saveAll().then(function(){refreshPreview();}).catch(function(){refreshPreview();});});
+  $('btnPdf').addEventListener('click',function(){ if(!state.cod){toast('Carregue um produto','bad');return;} window.open(API+'/ficha?codproduto='+encodeURIComponent(state.cod)+'&t='+Date.now(),'_blank'); });
+
+  // ============ RODAPE ============
+  var ROD=[['instagram','rodape_instagram','rodape_instagram.png'],['site','rodape_site','rodape_globe.png'],['telefone','rodape_telefone','rodape_phone.png']];
+  function loadRodape(){
+    ROD.forEach(function(r){ $('rimg_'+r[0]).src=ASSET+r[2]+'&t='+Date.now(); $('rfn_'+r[0]).textContent='—'; });
+    get(API+'/ft-cad/read?table=ft_config').then(function(rows){
+      var cfg={}; (Array.isArray(rows)?rows:[]).forEach(function(x){cfg[x.chave]=x.valor;});
+      $('rtxt_instagram').value=cfg.rodape_instagram||'';
+      $('rtxt_site').value=cfg.rodape_site||'';
+      $('rtxt_telefone').value=cfg.rodape_telefone||'';
+    }).catch(function(){});
+  }
+  $('btnRodape').addEventListener('click',function(){ show('rodape'); loadRodape(); });
+  $('btnBackR').addEventListener('click',function(){ show('painel'); });
+  ROD.forEach(function(r){
+    $('rfile_'+r[0]).addEventListener('change',function(e){ var f=e.target.files[0]; if(!f)return; $('rfn_'+r[0]).textContent='enviando...'; fileToB64(f).then(function(b64){ return post('/ft-cad/upload-asset',{name:r[2],ct:f.type,b64:b64}); }).then(function(){ $('rfn_'+r[0]).textContent='✓ enviada'; $('rimg_'+r[0]).src=ASSET+r[2]+'&t='+Date.now(); toast('Imagem do rodapé enviada','ok'); }).catch(function(){ $('rfn_'+r[0]).textContent='erro'; toast('Erro no upload','bad'); }); });
+  });
+  $('btnSaveRodape').addEventListener('click',function(){
+    $('btnSaveRodape').innerHTML='<span class="spin"></span> salvando';
+    Promise.all([
+      post('/ft-cad/config',{chave:'rodape_instagram',valor:$('rtxt_instagram').value||''}),
+      post('/ft-cad/config',{chave:'rodape_site',valor:$('rtxt_site').value||''}),
+      post('/ft-cad/config',{chave:'rodape_telefone',valor:$('rtxt_telefone').value||''})
+    ]).then(function(){ $('btnSaveRodape').innerHTML='💾 Salvar rodapé'; toast('Rodapé salvo','ok'); }).catch(function(){ $('btnSaveRodape').innerHTML='💾 Salvar rodapé'; toast('Erro ao salvar','bad'); });
+  });
 
   // boot
   loadPainel();
