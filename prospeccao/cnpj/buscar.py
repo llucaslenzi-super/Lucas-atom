@@ -28,8 +28,13 @@ def _lista(v):
 
 
 def _onde(uf, cnae, situacao, porte, municipio, capital_min,
-          abertura_de, abertura_ate, com_contato):
+          abertura_de, abertura_ate, com_contato, apenas_matriz=False):
     cond, par = [], []
+
+    # Sem isso, "as 10 maiores de SC" devolve 9 agências do mesmo banco.
+    # Uma agência não é um lead; a empresa é.
+    if apenas_matriz:
+        cond.append("e.matriz_filial = '1'")
 
     if uf := _lista(uf):
         cond.append(f"e.uf IN ({','.join('?' * len(uf))})")
@@ -129,7 +134,7 @@ def contar(db=None, **f) -> int:
     onde, par = _onde(f.get("uf"), f.get("cnae"), f.get("situacao", "ativa"),
                       f.get("porte"), f.get("municipio"), f.get("capital_min"),
                       f.get("abertura_de"), f.get("abertura_ate"),
-                      f.get("com_contato"))
+                      f.get("com_contato"), f.get("apenas_matriz", False))
     con = duckdb.connect(str(db or config.DB), read_only=True)
     sql = ("SELECT COUNT(*) FROM estabelecimentos e "
            "LEFT JOIN empresas em ON em.cnpj_basico = e.cnpj_basico "
@@ -141,9 +146,10 @@ def contar(db=None, **f) -> int:
 
 def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,
            municipio=None, capital_min=None, abertura_de=None, abertura_ate=None,
-           com_contato=False, ordenar="capital", limite=None) -> list[dict]:
+           com_contato=False, apenas_matriz=False,
+           ordenar="capital", limite=None) -> list[dict]:
     onde, par = _onde(uf, cnae, situacao, porte, municipio, capital_min,
-                      abertura_de, abertura_ate, com_contato)
+                      abertura_de, abertura_ate, com_contato, apenas_matriz)
     sql = _SELECT + onde + f" ORDER BY {ORDENS.get(ordenar, ORDENS['capital'])}"
     if limite:
         sql += f" LIMIT {int(limite)}"

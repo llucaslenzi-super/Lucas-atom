@@ -93,7 +93,7 @@ def cmd_buscar(a):
     f = dict(uf=a.uf, cnae=a.cnae, situacao=a.situacao, porte=a.porte,
              municipio=a.municipio, capital_min=a.capital_min,
              abertura_de=a.abertura_de, abertura_ate=a.abertura_ate,
-             com_contato=a.com_contato)
+             com_contato=a.com_contato, apenas_matriz=a.apenas_matriz)
 
     total = mod_buscar.contar(**f)
     print(f"\n  {_n(total)} empresas batem com o filtro")
@@ -150,18 +150,42 @@ def cmd_enriquecer(a):
     print(f"\n  {_n(len(cnpjs))} CNPJs · {_n(em_cache)} em cache · "
           f"{_n(faltam)} a consultar (~{faltam * config.INTERVALO_SEG / 60:.1f} min)")
 
+    destino = a.out or config.SAIDA / "leads.csv"
+    tamanho = max(1, a.lote)
     linhas, erros, t0 = [], 0, time.time()
-    for i, r in enumerate(api.consultar_lote(cnpjs), 1):
-        if r.http == 200 and r.dados:
-            linhas += achatar(r.dados)
-        else:
-            erros += 1
-        if i % 25 == 0 or i == len(cnpjs):
-            print(f"\r  {i}/{len(cnpjs)}  ok={len(linhas)} erros={erros} "
-                  f"{time.time()-t0:.0f}s", end="", flush=True)
+
+    # Processa em lotes: grava parcial a cada lote, então queda no meio
+    # não perde o que já foi consultado (e o cache cobre a retomada).
+    for inicio in range(0, len(cnpjs), tamanho):
+        bloco = cnpjs[inicio:inicio + tamanho]
+        do_bloco = []
+        for r in api.consultar_lote(bloco):
+            if r.http == 200 and r.dados:
+                do_bloco += achatar(r.dados)
+            else:
+                erros += 1
+
+        if a.apify and do_bloco:
+            try:
+                from . import apify
+                resumo = apify.enriquecer_lote(
+                    do_bloco, usar_maps=True, usar_ig=True,
+                    usar_li=a.linkedin, teto_usd=a.teto_usd)
+                print(f"\n      apify: {resumo}")
+            except apify.SemToken as e:
+                _erro(f"{e}  (seguindo sem Apify)")
+                a.apify = False
+            except Exception as e:
+                _erro(f"apify falhou neste lote: {e}")
+
+        linhas += do_bloco
+        exportar.escrever_csv(linhas, destino)      # parcial a cada lote
+        feitos = min(inicio + tamanho, len(cnpjs))
+        print(f"\r  {feitos}/{len(cnpjs)}  ok={len(linhas)} erros={erros} "
+              f"{time.time()-t0:.0f}s", end="", flush=True)
     print()
 
-    destino = exportar.escrever_csv(linhas, a.out or config.SAIDA / "leads.csv")
+    destino = exportar.escrever_csv(linhas, destino)
     _ok(f"{_n(len(linhas))} leads → {destino}")
     com = lambda k: sum(1 for l in linhas if l.get(k))
     print(f"      whatsapp {com('enr_whatsapp_principal')} · "
@@ -204,6 +228,8 @@ def main(argv=None):
     s.add_argument("--abertura-de", dest="abertura_de")
     s.add_argument("--abertura-ate", dest="abertura_ate")
     s.add_argument("--com-contato", action="store_true", dest="com_contato")
+    s.add_argument("--matriz", action="store_true", dest="apenas_matriz",
+                   help="só matrizes — evita 9 filiais do mesmo banco")
     s.add_argument("--ordenar", default="capital",
                    choices=list(mod_buscar.ORDENS))
     s.add_argument("--limite", type=int)
@@ -218,6 +244,13 @@ def main(argv=None):
     s = sub.add_parser("enriquecer", help="EmpresAqui 1 req/s → CSV final")
     s.add_argument("arquivo"); s.add_argument("--out")
     s.add_argument("--limite", type=int)
+    s.add_argument("--lote", type=int, default=10,
+                   help="grava parcial a cada N (padrão 10)")
+    s.add_argument("--apify", action="store_true",
+                   help="roda Maps + Instagram em 100%% do lote")
+    s.add_argument("--linkedin", action="store_true",
+                   help="inclui decisor via LinkedIn (caro)")
+    s.add_argument("--teto-usd", type=float, default=5.0, dest="teto_usd")
     s.set_defaults(fn=cmd_enriquecer)
 
     a = p.parse_args(argv)
