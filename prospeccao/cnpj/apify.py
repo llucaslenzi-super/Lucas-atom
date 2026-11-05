@@ -26,9 +26,18 @@ import urllib.request
 
 API = "https://api.apify.com/v2"
 
-ATOR_MAPS = "vortex_data~google-maps"
-ATOR_INSTAGRAM = "apify~instagram-profile-scraper"
-ATOR_LINKEDIN = "harvestapi~linkedin-company-employees"
+# IDs confirmados nas rodadas de exploração. São públicos: qualquer conta
+# usa os mesmos, com o próprio token.
+ATOR_MAPS = "vortex_data~google-maps"               # AabCualFIriz3X6Fs
+ATOR_INSTAGRAM = "apify~instagram-profile-scraper"  # dSCLg0C3YEZ83HzYX
+ATOR_LINKEDIN = "harvestapi~linkedin-company-employees"   # Vb6LZkh4EqRlR0Ka9
+
+# Opcional: enriquece um perfil de LinkedIn que você JÁ tem a URL.
+ATOR_LINKEDIN_PERFIL = "harvestapi~linkedin-profile-scraper"   # LpVuK3Zozwuipa5bp
+
+# NÃO USAR: apify/instagram-search-scraper (DrF9mzPPEuVizVF4l).
+# Busca por palavra-chave, validada como lixo — "lenceria paraguay" devolveu
+# hospital no Azerbaijão e cinema na Índia. Instagram é sempre pelo handle.
 
 
 class SemToken(RuntimeError):
