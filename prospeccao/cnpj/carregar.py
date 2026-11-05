@@ -76,16 +76,21 @@ ALIAS = {
     "identificador_matriz_filial": "matriz_filial",
     "correio_eletronico": "email",
     "data_inicio_atividade": "data_abertura",
+    "porte_empresa": "porte",                  # confirmado no Parquet real
     "porte_da_empresa": "porte",
     "capital_social_da_empresa": "capital_social",
-    "descricao": "descricao",
+    # confirmados no Parquet real
+    "ddd1": "ddd_1",
+    "telefone1": "telefone_1",
+    "ddd2": "ddd_2",
+    "telefone2": "telefone_2",
 }
 
 
 def _colunas(con, caminho: str) -> list[str]:
-    return [r[0] for r in con.execute(
-        f"SELECT name FROM (DESCRIBE SELECT * FROM read_parquet('{caminho}') LIMIT 0)"
-    ).fetchall()]
+    """Nomes das colunas do Parquet, lidos do cursor (independe da versão do DuckDB)."""
+    cur = con.execute(f"SELECT * FROM read_parquet('{caminho}') LIMIT 0")
+    return [d[0] for d in cur.description]
 
 
 def carregar(db: Path | None = None, bruto: Path | None = None) -> dict:
