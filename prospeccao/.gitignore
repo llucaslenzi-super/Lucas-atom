@@ -1,0 +1,6 @@
+dados/
+saida/
+*.sqlite
+*.parquet
+*.parcial
+__pycache__/
