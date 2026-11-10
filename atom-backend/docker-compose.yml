@@ -5,10 +5,13 @@ services:
       POSTGRES_USER: atom_owner
       POSTGRES_PASSWORD: atom
       POSTGRES_DB: atom
+      # Local dev only: lets the app role (atom_app) connect without a password.
+      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./scripts/docker-initdb.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U atom_owner -d atom"]
       interval: 5s
