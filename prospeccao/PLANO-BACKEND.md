@@ -18,7 +18,7 @@ Apify casando, CSV de 86 colunas saindo. Falta virar serviço.
 | **PDF** | Dossiê: uma página por empresa |
 | **Formatos de saída** | XLSX, CSV, PDF |
 | **Fila** | SQLite no próprio disco; sem servidor de banco |
-| **Telefones** | Uma coluna com todos, separados por `;`, mais a do principal |
+| **Telefones e e-mails** | Uma coluna para cada, com **todos** os valores separados por `;`. Sem coluna de "principal" |
 
 ### Ordem das colunas (especificação do cliente)
 
@@ -29,15 +29,13 @@ Apify casando, CSV de 86 colunas saindo. Falta virar serviço.
 4  socios                 todos os nomes, separados por ;
 5  cidade
 6  uf
-7  telefones              TODOS os números, separados por ;
-8  telefone_principal
-9  whatsapp
-10 emails                 TODOS, separados por ;
-11 email_principal
-12 site
-13 instagram
-14 linkedin
-15 facebook
+7  telefones              TODOS os números numa coluna só, separados por ;
+8  whatsapp               TODOS, separados por ;
+9  emails                 TODOS numa coluna só, separados por ;
+10 site
+11 instagram
+12 linkedin
+13 facebook
 -- daqui em diante, o resto do pipeline, agrupado:
    QUALIFICAÇÃO  cnae_codigo · cnae_descricao · porte · situacao · capital_social
                  faturamento · quadro_funcionarios · data_abertura · idade_anos
@@ -123,14 +121,16 @@ Roda hoje, na CLI, no Mac. É o que o cliente usa amanhã de manhã.
      → verifica: 1ª linha do xlsx é
        cnpj · razao_social · nome_fantasia · socios · cidade · uf
 
-3.2  Consolidar telefones: Receita(ddd_1+tel_1, ddd_2+tel_2)
-     + EmpresAqui(telefones_texto) + Maps(phone)
+3.2  Consolidar telefones numa coluna só: Receita(ddd_1+tel_1, ddd_2+tel_2)
+     + EmpresAqui(telefone_principal, telefones_texto) + Maps(phone)
      normalizar para dígitos, desduplicar, juntar com ;
      → verifica: empresa com 3 números distintos mostra os 3, sem repetição
      → verifica: mesmo número em formatos diferentes conta uma vez
+     → verifica: NÃO existe coluna telefone_principal na saída
 
-3.3  Mesmo tratamento para emails e instagram
-     → verifica: idem
+3.3  Mesmo tratamento para emails, whatsapp e instagram — uma coluna cada,
+     com todos os valores
+     → verifica: idem, e sem coluna *_principal em nenhum dos três
 
 3.4  Coluna de sócios: todos os nomes, separados por ;
      → verifica: empresa com 2 sócios mostra os 2
