@@ -192,9 +192,14 @@ rodando em outro servidor.
 
 Tamanho mínimo, pelo que o pipeline realmente consome:
 
+**Carregar só as 4 tabelas que o filtro usa.** `estabelecimentos`, `empresas`,
+`cnaes`, `municipios`. As tabelas `socios` (28,5 mi) e `simples` (50,8 mi) eram
+carregadas por reflexo e **nunca são lidas**: o filtro não as toca e o decisor vem
+da API do EmpresAqui, não da base. Isso é o `baixar` **sem** `--completo`.
+
 | | Mínimo | Confortável | Por quê |
 |---|---|---|---|
-| **Disco** | **60 GB** | 80 GB | Base 16 GB + Parquet 4,7 GB + sistema. A troca mensal carrega a base nova **ao lado** da antiga antes de trocar, então precisa de 16 GB a mais durante alguns minutos |
+| **Disco** | **40 GB** | 60 GB | Base enxuta ~12 GB + Parquet 4,2 GB + sistema. A troca mensal carrega a base nova **ao lado** da antiga antes de renomear, então o pico tem dois bancos ao mesmo tempo |
 | **RAM** | 4 GB | 8 GB | DuckDB trabalha em disco, mas consultas sobre 73 mi de linhas ficam bem mais rápidas com folga de memória |
 | **vCPU** | 2 | 2 | O gargalo é o limite de 1 requisição por segundo, não processamento |
 | **SO** | Ubuntu 22.04 LTS | Ubuntu 24.04 LTS | Python 3.11+ vem no repositório |
@@ -230,9 +235,9 @@ Python 3.11+ e espaço.
      .venv/bin/pip install duckdb fastapi uvicorn openpyxl reportlab
      → verifica: .venv/bin/python -c "import duckdb,fastapi,openpyxl,reportlab"
 
-2.4  Disco: a base ocupa 16 GB, os Parquet 4,7 GB
-     → verifica: df -h mostra 30 GB livres ANTES da carga
-     → se faltar: carregar e apagar dados/bruto (libera 4,7 GB)
+2.4  Disco: base enxuta ~12 GB, Parquet 4,2 GB
+     → verifica: df -h mostra 25 GB livres ANTES da carga
+     → após conferir, apagar dados/bruto libera 4,2 GB
 
 2.5  Credenciais em /etc/prospeccao.env, modo 600, dono root
      EMPRESAQUI_TOKEN=... / APIFY_TOKEN=... / API_TOKEN=...
@@ -346,8 +351,9 @@ desnecessário numa VM para um dossiê tabular.
 ## 4. Fase 2 — Base na VM
 
 ```
-4.1  Copiar o código e rodar a carga lá
-     cnpj baixar --completo && cnpj carregar && cnpj conferir
+4.1  Copiar o código e rodar a carga lá — SEM --completo
+     cnpj baixar && cnpj carregar && cnpj conferir
+     (--completo traria socios e simples, 79 mi de linhas que nada lê)
      → verifica: 73.809.379 estabelecimentos; SP com 21.369.926
 
 4.2  Abrir o DuckDB em modo somente-leitura na API
@@ -508,7 +514,7 @@ FASE 5 (auditoria, 7.4 e 7.5)
 | Teto do Apify no plano FREE (US$5/mês) | Para de enriquecer no meio | Monitorar em /jobs; subir de plano ou cortar Apify por lote |
 | Troca mensal da base muda nome de coluna | Carrega sem erro e fica trocado | `conferir` é obrigatório após toda carga; comparar contagem por UF |
 | Token do EmpresAqui rotacionado | 401 em todo job | O worker aborta no 401 e marca o motivo; não tenta de novo |
-| Disco cheio na VM durante a troca mensal | Carga falha | Checar 30 GB livres antes; apagar `dados/bruto` após conferir |
+| Disco cheio na VM durante a troca mensal | Carga falha | Checar 25 GB livres antes; apagar `dados/bruto` após conferir. Aconteceu em teste: o disco encheu e a medição morreu no meio |
 | VM reiniciada | Serviço fora do ar | `Restart=always` + habilitar no boot (5.5) |
 | LinkedIn nunca foi executado | Desconhecido | Fora do escopo deste plano; só entra depois de um teste real |
 
