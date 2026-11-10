@@ -13,7 +13,7 @@ Apify casando, CSV de 86 colunas saindo. Falta virar serviço.
 
 | | |
 |---|---|
-| **Onde a base mora** | VM no Google Cloud (`apontamento-germer`), DuckDB em arquivo |
+| **Onde a base mora** | **VM nova, dedicada a este projeto.** DuckDB em arquivo. Provedor em aberto — ver §2.0 |
 | **Exposição** | Nenhuma porta aberta — Cloudflare Tunnel, conexão de saída |
 | **PDF** | Dossiê: uma página por empresa |
 | **Formatos de saída** | XLSX, CSV, PDF |
@@ -24,6 +24,26 @@ Apify casando, CSV de 86 colunas saindo. Falta virar serviço.
 
 Origem: **R** = base da Receita (local, grátis) · **E** = API EmpresAqui ·
 **M** = Apify Google Maps · **I** = Apify Instagram · **C** = calculado em código.
+
+#### Regra de separador — vale para TODO campo com mais de um valor
+
+| Formato | Separador | Exemplo |
+|---|---|---|
+| **CSV** | `;` sem espaço | `4733319500;4733778000` |
+| **XLSX** | `;` sem espaço | `4733319500;4733778000` |
+| **PDF** | ` - ` espaço, traço, espaço | `4733319500 - 4733778000` |
+
+Aplica-se a **todos** os campos multivalorados, não só telefone: `telefones`,
+`whatsapp`, `emails`, `socios`, `programas_especiais`, `cnae_secundario`.
+
+O PDF usa traço porque é documento de leitura — ponto e vírgula colado atrapalha
+quem lê numa reunião. CSV e XLSX usam `;` porque são para a máquina e para o
+Excel separar depois.
+
+**Atenção no CSV:** o arquivo já usa `;` como separador de coluna. Então todo
+campo multivalorado vai **entre aspas** (`"4733319500;4733778000"`), senão o
+Excel quebra o telefone em duas colunas. O `csv.DictWriter` do Python faz isso
+sozinho — o que não pode é alguém trocar por escrita manual depois.
 
 #### Bloco 1 — Identificação (1 a 6)
 
@@ -163,7 +183,37 @@ isso. A API responde na hora com um `job_id`; o worker trabalha por fora.
 
 ---
 
-## 2. Preparar a VM
+## 2. Provisionar e preparar a VM
+
+### 2.0 — Criar a VM (máquina nova, dedicada a este projeto)
+
+**Nenhuma máquina existente é usada.** Não há dependência de nada que já esteja
+rodando em outro servidor.
+
+Tamanho mínimo, pelo que o pipeline realmente consome:
+
+| | Mínimo | Confortável | Por quê |
+|---|---|---|---|
+| **Disco** | **60 GB** | 80 GB | Base 16 GB + Parquet 4,7 GB + sistema. A troca mensal carrega a base nova **ao lado** da antiga antes de trocar, então precisa de 16 GB a mais durante alguns minutos |
+| **RAM** | 4 GB | 8 GB | DuckDB trabalha em disco, mas consultas sobre 73 mi de linhas ficam bem mais rápidas com folga de memória |
+| **vCPU** | 2 | 2 | O gargalo é o limite de 1 requisição por segundo, não processamento |
+| **SO** | Ubuntu 22.04 LTS | Ubuntu 24.04 LTS | Python 3.11+ vem no repositório |
+| **IP público** | não precisa | — | O túnel é conexão de saída |
+
+```
+2.0.1  Criar a VM com as especificações acima
+       → verifica: ssh entra; df -h mostra 60 GB ou mais livres;
+         lsb_release -a confirma o Ubuntu
+
+2.0.2  Firewall: só SSH de entrada. Nenhuma porta de aplicação aberta
+       → verifica: nmap a partir de fora mostra apenas a 22
+```
+
+**O disco é o que importa, não a máquina.** Qualquer VPS de 4 GB / 80 GB serve —
+não há nada específico de provedor neste plano. A única exigência é Linux com
+Python 3.11+ e espaço.
+
+### 2.1 em diante — Preparar
 
 ```
 2.1  Python 3.11+ e dependências do sistema
@@ -206,7 +256,7 @@ Roda hoje, na CLI, no Mac. É o que o cliente usa amanhã de manhã.
 
 3.2  Consolidar telefones numa coluna só: Receita(ddd_1+tel_1, ddd_2+tel_2)
      + EmpresAqui(telefone_principal, telefones_texto) + Maps(phone)
-     normalizar para dígitos, desduplicar, juntar com ;
+     normalizar para dígitos, desduplicar
      → verifica: empresa com 3 números distintos mostra os 3, sem repetição
      → verifica: mesmo número em formatos diferentes conta uma vez
      → verifica: NÃO existe coluna telefone_principal na saída
@@ -215,8 +265,21 @@ Roda hoje, na CLI, no Mac. É o que o cliente usa amanhã de manhã.
      com todos os valores
      → verifica: idem, e sem coluna *_principal em nenhum dos três
 
-3.4  Coluna de sócios: todos os nomes, separados por ;
+3.4  Coluna de sócios: todos os nomes
      → verifica: empresa com 2 sócios mostra os 2
+
+3.4b O separador é decidido NA EXPORTAÇÃO, não na consolidação.
+     Guardar a lista em memória; cada formato junta do seu jeito:
+       CSV e XLSX → ";"      (sem espaço)
+       PDF        → " - "    (espaço, traço, espaço)
+     Vale para telefones, whatsapp, emails, socios, programas_especiais
+     e cnae_secundario — todo campo multivalorado.
+     → verifica: o MESMO lead exportado nos 3 formatos mostra
+       "4733319500;4733778000" no CSV e no XLSX,
+       e "4733319500 - 4733778000" no PDF
+     → verifica: no CSV o campo sai ENTRE ASPAS, senão o Excel quebra o
+       telefone em duas colunas (o arquivo já usa ; como separador de coluna)
+     → verifica: abrir o CSV no Excel mantém os dois números na mesma célula
 
 3.5  Bloco 6 — DECISOR (colunas 37 a 41)
      Escolher o sócio: primeiro cuja qualificação contenha ADMINISTRADOR,
