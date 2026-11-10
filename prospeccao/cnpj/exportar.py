@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import io
 import re
 import zipfile
@@ -34,34 +35,65 @@ COLUNAS_SAIDA = [
 
 # ─────────────────────────────────────────── entrada
 
+def _coluna(ref: str) -> int:
+    """Referência de célula para índice: 'A1' -> 0, 'C5' -> 2, 'AA2' -> 26."""
+    n = 0
+    for c in ref:
+        if not c.isalpha():
+            break
+        n = n * 26 + (ord(c.upper()) - 64)
+    return n - 1
+
+
+def _texto(xml: str) -> str:
+    return html.unescape(re.sub(r"<[^>]+>", "", xml))
+
+
 def _celulas_xlsx(caminho: Path):
-    """Lê .xlsx sem dependência externa: é um zip com XML dentro."""
+    """
+    Lê .xlsx sem dependência externa: é um zip com XML dentro.
+
+    Dois detalhes que o formato impõe e que não dá pra ignorar:
+      - texto não fica na célula. A célula marca t="s" e guarda o ÍNDICE
+        de xl/sharedStrings.xml. Sem ler o t, o CNPJ vira "0", "1", "2".
+      - célula vazia pode vir auto-fechada (<c r="C5"/>) ou simplesmente
+        faltar. Por isso posicionamos pelo r="C5", e não pela ordem.
+    """
     with zipfile.ZipFile(caminho) as z:
         compart = []
         if "xl/sharedStrings.xml" in z.namelist():
             txt = z.read("xl/sharedStrings.xml").decode("utf-8", "replace")
-            compart = [re.sub(r"<[^>]+>", "", s)
-                       for s in re.findall(r"<si>(.*?)</si>", txt, re.S)]
-        folhas = [n for n in z.namelist() if n.startswith("xl/worksheets/sheet")]
-        for folha in sorted(folhas):
-            xml = z.read(folha).decode("utf-8", "replace")
-            for linha in re.findall(r"<row[^>]*>(.*?)</row>", xml, re.S):
-                valores = []
-                for cel in re.findall(r"<c[^>]*?(?:\st=\"(\w+)\")?[^>]*>(.*?)</c>",
-                                      linha, re.S):
-                    tipo, conteudo = cel
-                    v = re.search(r"<v>(.*?)</v>", conteudo, re.S)
-                    if not v:
-                        valores.append("")
-                        continue
-                    bruto = v.group(1)
-                    if tipo == "s":
-                        i = int(bruto)
-                        valores.append(compart[i] if i < len(compart) else "")
-                    else:
-                        valores.append(bruto)
-                yield valores
-            break   # só a primeira planilha
+            compart = [_texto(s) for s in re.findall(r"<si>(.*?)</si>", txt, re.S)]
+
+        folhas = sorted(n for n in z.namelist() if n.startswith("xl/worksheets/sheet"))
+        if not folhas:
+            return
+        xml = z.read(folhas[0]).decode("utf-8", "replace")   # só a primeira planilha
+
+        for linha in re.findall(r"<row[^>]*>(.*?)</row>", xml, re.S):
+            valores = []
+            for m in re.finditer(r"<c\b([^>]*?)(?:/>|>(.*?)</c>)", linha, re.S):
+                attrs, conteudo = m.group(1), m.group(2) or ""
+                ref = re.search(r'\br="([A-Z]+\d+)"', attrs)
+                i = _coluna(ref.group(1)) if ref else len(valores)
+                while len(valores) <= i:
+                    valores.append("")
+
+                tipo = re.search(r'\bt="([^"]+)"', attrs)
+                tipo = tipo.group(1) if tipo else "n"
+
+                if tipo == "inlineStr":
+                    valores[i] = _texto(conteudo)
+                    continue
+                v = re.search(r"<v>(.*?)</v>", conteudo, re.S)
+                if not v:
+                    continue
+                if tipo == "s":
+                    k = int(v.group(1))
+                    valores[i] = compart[k] if k < len(compart) else ""
+                else:
+                    valores[i] = html.unescape(v.group(1))
+            yield valores
 
 
 def _celulas_csv(caminho: Path):
