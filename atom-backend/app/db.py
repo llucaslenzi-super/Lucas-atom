@@ -15,6 +15,10 @@ from app.config import settings
 
 engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
 
+# System/owner engine (RLS-exempt): migrations, seed, and the internal pipeline
+# worker/callback that must write across the tenant boundary on the tenant's behalf.
+admin_engine = create_engine(settings.admin_database_url, pool_pre_ping=True, future=True)
+
 
 @contextmanager
 def tenant_tx(tenant_id: str) -> Iterator[Connection]:
