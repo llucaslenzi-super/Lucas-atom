@@ -22,34 +22,117 @@ Apify casando, CSV de 86 colunas saindo. Falta virar serviço.
 
 ### Ordem das colunas (especificação do cliente)
 
-```
-1  cnpj
-2  razao_social
-3  nome_fantasia
-4  socios                 todos os nomes, separados por ;
-5  cidade
-6  uf
-7  telefones              TODOS os números numa coluna só, separados por ;
-8  whatsapp               TODOS, separados por ;
-9  emails                 TODOS numa coluna só, separados por ;
-10 site
-11 instagram
-12 linkedin
-13 facebook
--- daqui em diante, o resto do pipeline, agrupado:
-   QUALIFICAÇÃO  cnae_codigo · cnae_descricao · porte · situacao · capital_social
-                 faturamento · quadro_funcionarios · data_abertura · idade_anos
-                 natureza_juridica · regime_tributario · opcao_simples · opcao_mei
-                 importa_exporta · programas_especiais
-   ENDEREÇO      logradouro · numero · complemento · bairro · cep
-   DECISOR       socio_admin · socio_admin_qualificacao · socio_admin_entrada · qtd_socios
-   RISCO         qtd_dividas
-   AUDITORIA     fonte_telefone · fonte_email · fonte_whatsapp
-                 score_site · fonte_atualizada_em · base_competencia
-```
+Origem: **R** = base da Receita (local, grátis) · **E** = API EmpresAqui ·
+**M** = Apify Google Maps · **I** = Apify Instagram · **C** = calculado em código.
+
+#### Bloco 1 — Identificação (1 a 6)
+
+| # | Coluna | Origem | O que é |
+|---|---|---|---|
+| 1 | `cnpj` | R | 14 dígitos, gravado como **texto** (senão o Excel come o zero da frente) |
+| 2 | `razao_social` | R | Nome registrado |
+| 3 | `nome_fantasia` | R | Vem vazio com frequência |
+| 4 | `socios` | R·E | **Todos** os nomes, separados por `;` |
+| 5 | `cidade` | R | Código do município resolvido na tabela `municipios` |
+| 6 | `uf` | R | Sigla |
+
+#### Bloco 2 — Contato (7 a 13)
+
+Um canal por coluna, **todos** os valores dentro dela, separados por `;`.
+Nenhuma coluna de "principal" — quem recebe a planilha escolhe qual usar.
+
+| # | Coluna | Origem | Como é montada |
+|---|---|---|---|
+| 7 | `telefones` | R·E·M | `ddd_1+tel_1`, `ddd_2+tel_2`, `telefone_principal`, `telefones_texto` e o `phone` do Maps — tudo reduzido a dígitos e desduplicado |
+| 8 | `whatsapp` | E·M | `whatsapp_principal`, `whatsapps_texto`, `whatsapps[]` do Maps |
+| 9 | `emails` | R·E·M | `email` da Receita, `email_principal`, `emails_texto`, `emails[]` do Maps. Minúsculas, desduplicado |
+| 10 | `site` | R·E·M | Prefixado com `https://` quando a fonte entrega sem protocolo |
+| 11 | `instagram` | E·M·I | Handle normalizado (`@nome`), venha como URL ou handle cru |
+| 12 | `linkedin` | E | Página da **empresa**, não de pessoa |
+| 13 | `facebook` | E | URL |
+
+#### Bloco 3 — Qualificação (14 a 26)
+
+| # | Coluna | Origem | O que é |
+|---|---|---|---|
+| 14 | `cnae_codigo` | R | 7 dígitos |
+| 15 | `cnae_descricao` | R | Resolvido na tabela `cnaes` |
+| 16 | `cnae_secundario` | R·E | CSV de códigos, como a fonte entrega |
+| 17 | `porte` | R | MICROEMPRESA · PEQUENO PORTE · MÉDIO/GRANDE · NÃO INFORMADO |
+| 18 | `situacao` | R | ATIVA · SUSPENSA · INAPTA · BAIXADA · NULA |
+| 19 | `data_situacao` | R | AAAA-MM-DD |
+| 20 | `capital_social` | R | Número, com a vírgula decimal convertida |
+| 21 | `faturamento` | E | Faixa em texto |
+| 22 | `quadro_funcionarios` | E | Faixa em texto |
+| 23 | `data_abertura` | R | AAAA-MM-DD |
+| 24 | `idade_anos` | C | Anos inteiros desde a abertura |
+| 25 | `natureza_juridica` | R | Texto pronto |
+| 26 | `matriz_filial` | R | MATRIZ ou FILIAL |
+
+#### Bloco 4 — Fiscal (27 a 31)
+
+| # | Coluna | Origem | O que é |
+|---|---|---|---|
+| 27 | `regime_tributario` | E | Texto pronto |
+| 28 | `opcao_simples` | R·E | S / N |
+| 29 | `opcao_mei` | R·E | S / N |
+| 30 | `programas_especiais` | E | Lista separada por `;` |
+| 31 | `importa_exporta` | C | `SIM`/`NÃO` — verdadeiro quando `programas_especiais` contém IMPORTAÇÃO E EXPORTACAO. **É o sinalizador oficial de importador** |
+
+#### Bloco 5 — Endereço (32 a 36)
+
+| # | Coluna | Origem | O que é |
+|---|---|---|---|
+| 32 | `logradouro` | R | Tipo + nome já concatenados |
+| 33 | `numero` | R | |
+| 34 | `complemento` | R | Espaços duplicados colapsados — a fonte entrega `LOJA  01` |
+| 35 | `bairro` | R | |
+| 36 | `cep` | R | 8 dígitos, sem máscara |
+
+#### Bloco 6 — Decisor (37 a 41)
+
+Quem assina. Vem do quadro societário **oficial**, não de LinkedIn nem de
+scraping. Por isso vem preenchido em praticamente todo lead, enquanto o LinkedIn
+falha justamente na empresa pequena.
+
+| # | Coluna | Origem | O que é |
+|---|---|---|---|
+| 37 | `socio_admin` | R·E | Nome de quem decide. **Regra:** o primeiro sócio cuja qualificação contenha ADMINISTRADOR, PRESIDENTE ou DIRETOR; se nenhum tiver, o primeiro da lista |
+| 38 | `socio_admin_qualificacao` | R·E | Texto da qualificação (ex.: SÓCIO-ADMINISTRADOR) |
+| 39 | `socio_admin_entrada` | R·E | AAAA-MM-DD de entrada na sociedade — diz há quanto tempo essa pessoa manda |
+| 40 | `socio_admin_faixa_etaria` | R | Faixa decodificada (ex.: 41 A 50 ANOS) |
+| 41 | `qtd_socios` | C | Quantos sócios ao todo. Um sócio é decisão rápida; muitos é conselho |
+
+#### Bloco 7 — Risco (42 a 45)
+
+Sinal de saúde financeira, para não gastar cadência com quem não paga.
+
+| # | Coluna | Origem | O que é |
+|---|---|---|---|
+| 42 | `qtd_dividas` | E | Quantos trimestres com dívida ativa em `historicoDividasPorTrimestre`. Zero quando todos dizem NAO POSSUI |
+| 43 | `divida_ultimo_trimestre` | E | Valor do trimestre mais recente, ou vazio |
+| 44 | `recuperacao_judicial` | C | `SIM`/`NÃO` — verdadeiro quando `programas_especiais` contém RECUPERACAO JUDICIAL |
+| 45 | `situacao_alerta` | C | `SIM` quando a situação não é ATIVA, **ou** há dívida, **ou** há recuperação judicial. Uma coluna só para filtrar no Excel sem precisar ler as outras três |
+
+#### Bloco 8 — Auditoria (46 a 53)
+
+De onde veio cada dado e quando. Serve para LGPD, para conferir um lead
+contestado, e para saber se a base estava velha quando o lote saiu.
+
+| # | Coluna | Origem | O que é |
+|---|---|---|---|
+| 46 | `fonte_telefone` | C | Qual camada entregou: `receita` · `empresaqui` · `maps` · vazio |
+| 47 | `fonte_email` | C | Idem |
+| 48 | `fonte_whatsapp` | C | Idem |
+| 49 | `fonte_instagram` | C | Idem |
+| 50 | `score_site` | E | 0 a 100 — confiança do EmpresAqui de que aquele site é mesmo daquele CNPJ |
+| 51 | `fonte_atualizada_em` | E | Quando o EmpresAqui atualizou o enriquecimento daquela empresa |
+| 52 | `base_competencia` | C | Competência da base da Receita usada (ex.: `2026-10`) |
+| 53 | `extraido_em` | C | Data e hora em que **este lote** rodou |
 
 **Coluna sem nenhum valor no lote é removida da saída.** Hoje são 86 colunas e a
-maioria vem vazia em lote de indústria.
+maioria vem vazia em lote de indústria. Uma coluna com **um único** valor
+preenchido permanece: o critério é vazia de verdade, não "quase vazia".
 
 ---
 
@@ -135,22 +218,59 @@ Roda hoje, na CLI, no Mac. É o que o cliente usa amanhã de manhã.
 3.4  Coluna de sócios: todos os nomes, separados por ;
      → verifica: empresa com 2 sócios mostra os 2
 
-3.5  Remover coluna 100% vazia no lote
+3.5  Bloco 6 — DECISOR (colunas 37 a 41)
+     Escolher o sócio: primeiro cuja qualificação contenha ADMINISTRADOR,
+     PRESIDENTE ou DIRETOR; se nenhum tiver, o primeiro da lista.
+     Decodificar a faixa etária (código 4 → "31 A 40 ANOS").
+     → verifica: empresa com SÓCIO-ADMINISTRADOR e SÓCIO escolhe o
+       administrador, não o primeiro da lista
+     → verifica: empresa só com SÓCIO simples preenche mesmo assim,
+       com a qualificação que tem
+     → verifica: qtd_socios bate com o número de chaves numéricas da resposta
+
+3.6  Bloco 7 — RISCO (colunas 42 a 45)
+     qtd_dividas = trimestres em historicoDividasPorTrimestre cujo valor
+     NÃO seja "NAO POSSUI". divida_ultimo_trimestre = valor do mais recente.
+     recuperacao_judicial e situacao_alerta derivados em código.
+     → verifica: empresa com 26 trimestres todos "NAO POSSUI" dá qtd_dividas = 0
+     → verifica: empresa BAIXADA marca situacao_alerta = SIM mesmo sem dívida
+     → verifica: empresa ATIVA, sem dívida e sem recuperação dá
+       situacao_alerta = NÃO
+
+3.7  Bloco 8 — AUDITORIA (colunas 46 a 53)
+     fonte_* preenchida na hora em que o valor é escolhido, não depois:
+     quem venceu a consolidação é quem assina o campo.
+     base_competencia lida de dados/competencia.txt; extraido_em é o
+     instante do lote.
+     → verifica: lead com telefone só da Receita marca fonte_telefone=receita
+     → verifica: lead com whatsapp só do Maps marca fonte_whatsapp=maps
+     → verifica: campo vazio tem fonte_* vazia — nunca uma fonte inventada
+     → verifica: todos os leads do mesmo lote têm o mesmo extraido_em
+
+3.8  Remover coluna 100% vazia no lote
      → verifica: lote de indústria sai com bem menos que 86 colunas,
        e nenhuma coluna removida tinha valor em alguma linha
+     → verifica: coluna com UM único valor preenchido permanece
 
-3.6  XLSX com openpyxl: cabeçalho congelado, autofiltro, largura automática,
+3.9  XLSX com openpyxl: cabeçalho congelado, autofiltro, largura automática,
      CNPJ como TEXTO (senão o Excel come o zero da frente de novo)
      → verifica: abre sem aviso; filtro funciona; CNPJ 02585301000150
        aparece com o zero
 
-3.7  PDF dossiê com reportlab: uma página por empresa
-     cabeçalho (razão social, fantasia, CNPJ) · bloco contatos ·
-     bloco decisor · bloco qualificação · rodapé com procedência e data
-     → verifica: 6 empresas geram 6 páginas; empresa sem whatsapp mostra
-       o campo vazio, não some com o bloco
+3.10 PDF dossiê com reportlab: uma página por empresa, nesta ordem —
+     cabeçalho (razão social · fantasia · CNPJ · cidade/UF)
+     bloco CONTATO     telefones, whatsapp, emails, site, redes
+     bloco DECISOR     nome, qualificação, desde quando, nº de sócios
+     bloco QUALIFICAÇÃO CNAE, porte, capital, faturamento, funcionários,
+                        abertura, importa/exporta
+     bloco RISCO       só aparece quando situacao_alerta = SIM
+     rodapé            fonte de cada contato · competência da base · data do lote
+     → verifica: 6 empresas geram 6 páginas
+     → verifica: empresa sem whatsapp mostra o campo vazio, não some com o bloco
+     → verifica: empresa ATIVA e sem dívida NÃO mostra o bloco de risco
+     → verifica: o rodapé de cada página traz a competência da base
 
-3.8  CLI: --formato xlsx,csv,pdf
+3.11 CLI: --formato xlsx,csv,pdf
      → verifica: um comando gera os três
 ```
 
