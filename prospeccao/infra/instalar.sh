@@ -50,6 +50,11 @@ CNPJ_DADOS=$RAIZ/dados
 CNPJ_SAIDA=$RAIZ/saida
 EOF
 chmod 600 /etc/$SLUG.env
+# Restaura o umask: sem isto ele vaza para o resto do script e os arquivos de
+# unidade nascem com modo 600. O systemd le (e root), mas quem for depurar
+# leva "Permission denied" num `grep` e perde tempo atras de um problema que
+# nao existe.
+umask 022
 # Dono root de propósito: o systemd lê o arquivo ANTES de descer para User=,
 # então o usuário de serviço não precisa — e não deve — conseguir lê-lo.
 
