@@ -476,3 +476,57 @@ def test_ordem_das_colunas_no_csv_e_no_xlsx(tmp_path):
     ws = load_workbook(feitos["xlsx"], read_only=True).active
     cabecalho = [c.value for c in next(ws.rows)]
     assert cabecalho[:12] == DOZE_PRIMEIRAS, cabecalho[:12]
+
+
+# ───────────────── a lista de 100 é constante, não parâmetro
+
+def test_pedido_de_250_vira_tres_listas_de_cem(tmp_path):
+    """
+    Toda lista entregue tem no máximo 100 empresas. Era parâmetro do cliente:
+    tamanho_fatia=100000 produzia uma fatia única de horas, sem entrega
+    parcial, sem retomada barata e sem caber no n8n.
+    """
+    import json as _json
+    from servico.fila import Fila, TAMANHO_LISTA
+
+    assert TAMANHO_LISTA == 100
+    f = Fila(tmp_path / "jobs.sqlite")
+    r = f.criar([f"{i:014d}" for i in range(250)], filtro="teste")
+
+    assert r["fatias"] == 3
+    tamanhos = [len(_json.loads(linha["cnpjs"]))
+                for linha in f.db.execute(
+                    "SELECT cnpjs FROM fatias WHERE pedido_id=? ORDER BY n",
+                    [r["id"]]).fetchall()]
+    assert tamanhos == [100, 100, 50], tamanhos
+
+    # e não há como pedir outro tamanho: o parâmetro não existe mais
+    import inspect
+    assert "tamanho_fatia" not in inspect.signature(f.criar).parameters
+
+
+def test_api_recusa_entrada_invalida():
+    """
+    Cada recusa aqui é um defeito que ia aparecer tarde: formato errado
+    derrubava a fatia DEPOIS do 202, e CNPJ sujo fazia total_pedido mentir
+    sobre o que seria processado.
+    """
+    import os
+    os.environ.setdefault("API_TOKEN", "x")
+    from pydantic import ValidationError
+    from servico.api import Pedido, TETO_TOTAL
+
+    with pytest.raises(ValidationError):
+        Pedido(cnpjs=["84429695000111"], formatos=["docx"])
+
+    with pytest.raises(ValidationError):
+        Pedido(cnpjs=["00000000000000", "nada"])        # nenhum válido
+
+    with pytest.raises(ValidationError):
+        Pedido(filtro=None, cnpjs=["84429695000111"], total=TETO_TOTAL + 1)
+
+    # CNPJ sujo é limpo e desduplicado na ENTRADA
+    p = Pedido(cnpjs=["84.429.695/0001-11", "84429695000111",
+                      "86.950.110/0001-30"])
+    assert p.cnpjs == ["84429695000111", "86950110000130"]
+    assert p.formatos == ["xlsx", "csv"]

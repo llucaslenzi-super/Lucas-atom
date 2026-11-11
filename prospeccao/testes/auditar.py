@@ -54,6 +54,12 @@ SABOTAGENS = [
      '"razao_social", "cnpj", "nome_fantasia", "contatos", "email",'),
 ]
 
+# Sabotagens fora de cnpj/: a pasta é escolhida pelo prefixo do módulo.
+SABOTAGENS += [
+    ("lista deixa de ter 100 no máximo", "servico/fila",
+     "TAMANHO_LISTA = 100", "TAMANHO_LISTA = 100000"),
+]
+
 
 def _limpar_bytecode():
     """Sem isso a auditoria se contamina: o .pyc da rodada anterior sobrevive."""
@@ -70,7 +76,8 @@ def _suite_falha() -> bool:
 
 
 def main() -> int:
-    arquivos = {m: RAIZ / "cnpj" / f"{m}.py" for _, m, _, _ in SABOTAGENS}
+    arquivos = {m: (RAIZ / f"{m}.py" if "/" in m else RAIZ / "cnpj" / f"{m}.py")
+                for _, m, _, _ in SABOTAGENS}
     original = {m: p.read_text() for m, p in arquivos.items()}
 
     if _suite_falha():

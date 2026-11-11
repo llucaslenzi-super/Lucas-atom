@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS servico (chave TEXT PRIMARY KEY, valor TEXT);
 """
 
 
+# O tamanho da lista é CONSTANTE, não parâmetro. Era configurável pelo cliente
+# e isso derrubava o desenho: tamanho_fatia=100000 produzia uma fatia única de
+# horas, sem entrega parcial, sem retomada barata, e sem caber no n8n.
+#
+# Cem é o número que faz tudo funcionar: dois minutos a 1 req/s, 473 KB em
+# xlsx+csv depois do base64, e refazer uma que falhe custa dois minutos.
+TAMANHO_LISTA = 100
+
+
 def _agora() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -76,7 +85,7 @@ class Fila:
 
     # ---------------------------------------------------------- criar
     def criar(self, cnpjs: list[str], *, filtro="", formatos=("xlsx",), blocos=None,
-              com_apify=True, teto_usd=2.0, tamanho_fatia=100, chave_idem=None,
+              com_apify=True, teto_usd=2.0, chave_idem=None,
               base_competencia=None) -> dict:
         """
         A lista de CNPJs é CONGELADA aqui. Se o pedido fosse só o filtro, uma
@@ -90,11 +99,11 @@ class Fila:
                 return {"id": ja["id"], "repetido": True}
 
         pid = "p_" + uuid.uuid4().hex[:12]
-        fatias = [cnpjs[i:i + tamanho_fatia]
-                  for i in range(0, len(cnpjs), tamanho_fatia)] or [[]]
+        fatias = [cnpjs[i:i + TAMANHO_LISTA]
+                  for i in range(0, len(cnpjs), TAMANHO_LISTA)] or [[]]
         self.db.execute(
             "INSERT INTO pedidos VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (pid, chave_idem, filtro, len(cnpjs), tamanho_fatia,
+            (pid, chave_idem, filtro, len(cnpjs), TAMANHO_LISTA,
              json.dumps(list(formatos)), json.dumps(blocos), int(com_apify),
              teto_usd, "pendente", None, base_competencia, _agora(), None))
         self.db.executemany(

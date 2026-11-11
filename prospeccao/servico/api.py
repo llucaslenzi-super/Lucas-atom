@@ -17,14 +17,21 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from cnpj import buscar as mod_buscar, config
-from servico.fila import Fila
+from cnpj.empresaqui import normalizar
+from servico.fila import Fila, TAMANHO_LISTA
 
 TOKEN = os.environ.get("API_TOKEN", "")
+
+# Teto de empresas por pedido. Não é limite técnico: a 1 req/s, 10.000
+# empresas são 2h47 de trabalho, e a pessoa tem de pedir isso de propósito,
+# em pedidos separados, em vez de por acidente num campo de formulário.
+TETO_TOTAL = 10_000
+FORMATOS = {"csv", "xlsx", "pdf"}
 FILA = Fila(config.DADOS / "jobs.sqlite")
 app = FastAPI(title="Misner · Prospecção", version="1.0")
 
@@ -73,12 +80,43 @@ class Filtro(BaseModel):
 class Pedido(BaseModel):
     filtro: Filtro | None = None
     cnpjs: list[str] | None = None
-    total: int = 100
-    tamanho_fatia: int = 100
-    formatos: list[str] = ["xlsx"]
+    # Toda lista entregue tem no máximo 100 empresas, e isso não se configura:
+    # `tamanho_fatia` saiu do modelo de propósito. 1000 empresas são 10 listas.
+    total: int = Field(default=100, ge=1, le=TETO_TOTAL)
+    formatos: list[str] = ["xlsx", "csv"]
     blocos: list[str] | None = None
     com_apify: bool = True
-    teto_usd: float = 2.0
+    teto_usd: float = Field(default=2.0, ge=0, le=100)
+
+    @field_validator("formatos")
+    @classmethod
+    def _formatos_validos(cls, v):
+        # Antes isto só estourava dentro do worker, derrubando a fatia para
+        # erro depois de a API já ter respondido 202 ao cliente.
+        ruins = [f for f in v if f not in FORMATOS]
+        if ruins:
+            raise ValueError(f"formato desconhecido: {ruins}. "
+                             f"Use {sorted(FORMATOS)}")
+        return v or ["xlsx", "csv"]
+
+    @field_validator("cnpjs")
+    @classmethod
+    def _cnpjs_validos(cls, v):
+        # Normalizar AQUI, não lá dentro: se a limpeza acontece depois, o
+        # total_pedido gravado na fila mente sobre o que será processado.
+        if v is None:
+            return v
+        limpos, vistos = [], set()
+        for bruto in v:
+            n = normalizar(bruto)
+            if n and n[0] not in vistos:
+                vistos.add(n[0])
+                limpos.append(n[0])
+        if not limpos:
+            raise ValueError("nenhum CNPJ válido na lista")
+        if len(limpos) > TETO_TOTAL:
+            raise ValueError(f"máximo de {TETO_TOTAL} CNPJs por pedido")
+        return limpos
 
 
 @app.get("/v1/saude")
@@ -140,7 +178,7 @@ def criar_pedido(p: Pedido, idempotency_key: str | None = Header(default=None)):
 
     r = FILA.criar(lista, filtro=filtro, formatos=p.formatos, blocos=p.blocos,
                    com_apify=p.com_apify, teto_usd=p.teto_usd,
-                   tamanho_fatia=p.tamanho_fatia, chave_idem=idempotency_key,
+                   chave_idem=idempotency_key,
                    base_competencia=(_BASE["meta"] or _meta()).get("competencia"))
     if r.get("repetido"):
         raise HTTPException(409, f"pedido já existe: {r['id']}")
