@@ -1,0 +1,233 @@
+"""
+Testes dos pontos que falham EM SILÊNCIO.
+
+Cada um destes já quebrou de verdade, ou quebraria sem ninguém perceber:
+nenhum levanta exceção, todos entregam planilha errada parecendo certa.
+"""
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from cnpj import apify, colunas as C, exportar
+from cnpj.empresaqui import EmpresAqui, achatar, dv_valido, normalizar
+
+
+# ─────────────────────────────── dígito verificador
+
+@pytest.mark.parametrize("entrada,esperado", [
+    ("21.792.257/0001-01", "21792257000101"),   # pontuado
+    ("21792257000101",     "21792257000101"),   # limpo
+    (84043009000170,       "84043009000170"),   # Excel virou número
+    (4432327000193,        "04432327000193"),   # Excel COMEU o zero da frente
+    ("02585301000150",     "02585301000150"),   # zero preservado
+])
+def test_dv_aceita(entrada, esperado):
+    assert normalizar(entrada)[0] == esperado
+
+
+@pytest.mark.parametrize("ruim", [
+    "11.222.333/4444-55",   # DV quebrado
+    "11111111111111",       # todos iguais
+    "123", "", None, "nao tem",
+])
+def test_dv_rejeita(ruim):
+    assert normalizar(ruim) is None
+
+
+def test_dv_nao_gasta_requisicao():
+    """CNPJ torto é descartado ANTES da chamada — é o que protege a cota."""
+    assert not dv_valido("11222333444455")
+
+
+# ─────────────────────────────── leitura de .xlsx (bug de 2 em 6)
+
+def test_xlsx_le_os_quatro_formatos_do_excel(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    wb = openpyxl.Workbook(); ws = wb.active
+    ws.append(["Vendedor", "Cod", "CNPJ", "Obs"])
+    for l in [("a", 1, "84.683.408/0001-03", "pontuado"),
+              ("b", 2, "82640558000104", "texto puro"),
+              ("c", 3, 84043009000170, "numero"),
+              ("d", 4, 4432327000193, "zero comido"),
+              ("e", 5, "84.683.408/0001-03", "DUPLICADO"),
+              ("f", 6, "11.222.333/4444-55", "DV quebrado"),
+              ("g", 7, "", "vazio")]:
+        ws.append(list(l))
+    alvo = tmp_path / "p.xlsx"; wb.save(alvo)
+
+    cnpjs, info = exportar.ler_cnpjs(alvo)
+    assert len(cnpjs) == 4, "texto no xlsx vem de sharedStrings; sem ler t='s' vira índice"
+    assert "04432327000193" in cnpjs, "zero da frente tem de ser restaurado"
+    assert info["invalidos_descartados"] == 1
+    assert info["coluna_detectada"] == 2, "achar a coluna sozinho, sem mapeamento"
+
+
+# ─────────────────────────────── casamento por nome
+
+def test_casa_quando_o_nome_bate():
+    leads = [{"razao_social": "WEG EQUIPAMENTOS ELETRICOS S/A"}]
+    n = apify.casar(leads, [{"title": "WEG Equipamentos Elétricos",
+                             "emails": [], "whatsapps": [], "instagrams": []}],
+                    apify.de_maps, "title")
+    assert n == 1 and leads[0]["match_score"] >= 0.9
+
+
+def test_maps_entrega_todos_os_valores_nao_so_o_primeiro():
+    """
+    O código antigo fazia emails[0] e jogava o resto fora: um lugar com
+    quatro e-mails entregava um. Lacuna encontrada na auditoria.
+    """
+    item = {"title": "WEG", "phone": "4732764000",
+            "emails": ["a@weg.net", "b@weg.net", "c@weg.net"],
+            "whatsapps": ["5547999990000", "5547988880000"],
+            "instagrams": ["https://instagram.com/wegoficial", "@weg_br"]}
+    d = apify.de_maps(item)
+    assert len(d["_email"]) == 3, "todos os e-mails, não só o primeiro"
+    assert len(d["_contatos"]) == 3, "telefone + os dois whatsapps"
+    assert len(d["_instagram"]) == 2
+
+
+def test_maps_funde_todos_na_coluna_consolidada():
+    lead = achatar(_resposta(enrichment={"email_principal": "a@dohler.com.br"}))[0]
+    apify._fundir(lead, apify.de_maps({
+        "title": "Dohler", "phone": None, "emails": ["b@dohler.com.br", "c@dohler.com.br"],
+        "whatsapps": [], "instagrams": []}), "maps")
+    assert len(lead["email"]) == 3, "os dois do Maps entram junto com o que já havia"
+    assert lead["fonte_email"][-2:] == ["maps", "maps"]
+
+
+def test_nao_casa_lazos_com_los_lazos():
+    """O erro documentado na spec. Prefere vazio a casar errado."""
+    leads = [{"razao_social": "LAZOS COMERCIO LTDA"}]
+    n = apify.casar(leads, [{"title": "Frigorífico Los Lazos",
+                             "emails": ["x@loslazos.ar"], "whatsapps": [],
+                             "instagrams": []}], apify.de_maps, "title")
+    assert n == 0 and not leads[0].get("email")
+
+
+# ─────────────────────────────── consolidação
+
+def _resposta(**extra):
+    base = {"cnpj": "84683408000103", "razao": "DOHLER S.A.",
+            "ddd_1": "47", "tel_1": "34411666", "email": "a@dohler.com.br",
+            "programas_especiais": [], "historicoDividasPorTrimestre": []}
+    base.update(extra); return base
+
+
+def test_fixo_e_whatsapp_na_mesma_coluna():
+    """Não há como saber qual número tem WhatsApp. Separar seria inventar."""
+    L = achatar(_resposta(enrichment={"telefone_principal": "4733319500",
+                                      "whatsapp_principal": "47988616143"}))[0]
+    assert set(L["contatos"]) == {"4734411666", "4733319500", "47988616143"}
+    assert "whatsapp" not in L, "não existe coluna whatsapp separada"
+
+
+def test_mesmo_numero_em_formatos_diferentes_conta_uma_vez():
+    L = achatar(_resposta(enrichment={"telefone_principal": "(47) 3441-1666",
+                                      "telefones_texto": "4734411666"}))[0]
+    assert L["contatos"] == ["4734411666"]
+
+
+def test_campos_texto_separam_por_barra_vertical():
+    """Medido na fonte: emails_texto usa ' | ', não vírgula."""
+    L = achatar(_resposta(enrichment={
+        "emails_texto": "cac@dohler.com.br | sac@dohler.com.br"}))[0]
+    assert len(L["email"]) == 3
+
+
+def test_descarta_email_lixo_da_fonte():
+    """exemplo@mail.com e u002f@x.y são lixo que a própria fonte entrega."""
+    L = achatar(_resposta(enrichment={
+        "emails_texto": "exemplo@mail.com | u002f@dohler.oficial | ok@dohler.com.br"}))[0]
+    assert L["email"] == ["a@dohler.com.br", "ok@dohler.com.br"]
+
+
+def test_socios_nao_contam_dividas():
+    """Chaves numéricas misturam sócios e dívidas. Atingia 18% das empresas."""
+    L = achatar(_resposta(**{
+        "0": {"socios_nome": "A", "socios_qualificacao": "SÓCIO-ADMINISTRADOR"},
+        "1": {"socios_nome": "B", "socios_qualificacao": "SÓCIO"},
+        "2": {"dividas_numero": "9142302441973", "dividas_valor": "10827200",
+              "dividas_receita": "R D Ativa"}}))[0]
+    assert L["qtd_socios"] == 2 and L["socios"] == ["A", "B"]
+    assert L["qtd_dividas"] == 1 and L["divida_valor_total"] == 10827200.0
+
+
+def test_todos_os_socios_saem_na_coluna():
+    r = _resposta(**{str(i): {"socios_nome": f"S{i}"} for i in range(9)})
+    assert len(achatar(r)[0]["socios"]) == 9
+
+
+# ─────────────────────────────── separador por formato
+
+def test_separador_muda_por_formato():
+    v = ["4733319500", "47988616143"]
+    assert C.juntar(v, "csv") == "4733319500;47988616143"
+    assert C.juntar(v, "xlsx") == "4733319500;47988616143"
+    assert C.juntar(v, "pdf") == "4733319500 - 47988616143"
+
+
+def test_csv_poe_multivalor_entre_aspas(tmp_path):
+    """O arquivo já usa ; de coluna; sem aspas o Excel quebra o telefone."""
+    L = achatar(_resposta(enrichment={"telefone_principal": "4733319500"}))[0]
+    exportar.escrever([L], tmp_path / "x", ("csv",))
+    txt = (tmp_path / "x.csv").read_text(encoding="utf-8-sig")
+    assert '"4734411666;4733319500"' in txt
+
+
+# ─────────────────────────────── coluna vazia
+
+def test_coluna_totalmente_vazia_sai():
+    L = achatar(_resposta())[0]
+    cols, _ = exportar._preparar([L], None, "csv")
+    assert "instagram" not in cols
+
+
+def test_coluna_com_um_unico_valor_permanece():
+    """Vazia é vazia de VERDADE, não 'quase vazia'."""
+    a = achatar(_resposta(enrichment={"instagram_principal": "@dohler"}))[0]
+    b = achatar(_resposta())[0]
+    cols, _ = exportar._preparar([a, b], None, "csv")
+    assert "instagram" in cols
+
+
+# ─────────────────────────────── cache
+
+def test_cache_nao_guarda_falha_transitoria(tmp_path, monkeypatch):
+    """
+    O defeito mais caro: uma oscilação de rede marcava o CNPJ como falho
+    PARA SEMPRE e a empresa sumia de toda lista futura.
+    """
+    api = EmpresAqui(token="x", cache=tmp_path / "c.sqlite")
+    for ruim in (0, 429, 500, 502):
+        api._guardar("21792257000101", ruim, None)
+        assert api._do_cache("21792257000101") is None, f"HTTP {ruim} não pode ficar"
+    api._guardar("21792257000101", 200, {"cnpj": "21792257000101"})
+    assert api._do_cache("21792257000101")[0] == 200
+
+
+def test_cache_guarda_nao_encontrado(tmp_path):
+    """404 é definitivo: o CNPJ não existe, não adianta perguntar de novo."""
+    api = EmpresAqui(token="x", cache=tmp_path / "c.sqlite")
+    api._guardar("21792257000101", 404, None)
+    assert api._do_cache("21792257000101")[0] == 404
+
+
+# ─────────────────────────────── teto de CNAE
+
+def test_teto_de_dois_cnaes_no_filtro():
+    from cnpj.buscar import CnaesDemais, MAX_CNAES, _onde
+    assert MAX_CNAES == 2
+    _onde(None, "13,14", "ativa", None, None, None, None, None, False, False, False)
+    with pytest.raises(CnaesDemais):
+        _onde(None, "13,14,15", "ativa", None, None, None, None, None, False, False, False)
+
+
+def test_planilha_nao_tem_teto_de_cnae():
+    """O caminho da planilha não passa pelo filtro: ali CNAE é saída, não critério."""
+    import inspect
+    fonte = inspect.getsource(exportar.ler_cnpjs)
+    assert "cnae" not in fonte and "buscar" not in fonte
