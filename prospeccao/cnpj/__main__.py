@@ -102,8 +102,7 @@ def cmd_cnaes(a):
 
 def cmd_buscar(a):
     f = dict(uf=a.uf, cnae=a.cnae, situacao=a.situacao, porte=a.porte,
-             municipio=a.municipio, capital_min=a.capital_min,
-             apenas_matriz=a.apenas_matriz)
+             municipio=a.municipio, apenas_matriz=a.apenas_matriz)
 
     total = mod_buscar.contar(**f)
     print(f"\n  {_n(total)} empresas batem com o filtro")
@@ -238,10 +237,9 @@ def main(argv=None):
     s = sub.add_parser("buscar", help="PORTA A — filtro por UF/CNAE/porte")
     s.add_argument("--uf"); s.add_argument("--cnae"); s.add_argument("--municipio")
     s.add_argument("--porte"); s.add_argument("--situacao", default="ativa")
-    s.add_argument("--capital-min", type=float, dest="capital_min")
     s.add_argument("--matriz", action="store_true", dest="apenas_matriz",
                    help="só matrizes — evita 9 filiais do mesmo banco")
-    s.add_argument("--ordenar", default="capital",
+    s.add_argument("--ordenar", default="cnpj",
                    choices=list(mod_buscar.ORDENS))
     s.add_argument("--limite", type=int)
     s.add_argument("--contar", action="store_true", help="só conta, não exporta")

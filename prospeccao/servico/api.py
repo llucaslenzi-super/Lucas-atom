@@ -61,14 +61,12 @@ class Filtro(BaseModel):
     porte: list[str] | None = None
     situacao: str = "ativa"
     apenas_matriz: bool = True
-    capital_min: float | None = None
     excluir_entregues: bool = True
 
     def kw(self) -> dict:
         return dict(uf=self.ufs, cnae=self.cnaes, municipio=self.municipios,
                     porte=self.porte, situacao=self.situacao,
                     apenas_matriz=self.apenas_matriz,
-                    capital_min=self.capital_min,
                     excluir_entregues=self.excluir_entregues)
 
 
@@ -112,7 +110,7 @@ def contar(f: Filtro):
 
 
 @app.post("/v1/buscar", dependencies=[Depends(auth)])
-def buscar_(f: Filtro, limite: int = 100, ordenar: str = "capital"):
+def buscar_(f: Filtro, limite: int = 100, ordenar: str = "cnpj"):
     # Limite obrigatório: um filtro largo sem teto materializa milhões de
     # dicts em 4 GB de RAM e derruba a API.
     if not 1 <= limite <= 1000:
@@ -130,7 +128,7 @@ def criar_pedido(p: Pedido, idempotency_key: str | None = Header(default=None)):
         lista, filtro = p.cnpjs, "planilha"
     elif p.filtro:
         try:
-            linhas = mod_buscar.buscar(limite=p.total, ordenar="capital", **p.filtro.kw())
+            linhas = mod_buscar.buscar(limite=p.total, ordenar="cnpj", **p.filtro.kw())
         except mod_buscar.CnaesDemais as e:
             raise HTTPException(422, str(e))
         lista = [l["cnpj"] for l in linhas]

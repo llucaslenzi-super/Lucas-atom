@@ -50,7 +50,7 @@ def _lista(v):
     return [str(x).strip() for x in v if str(x).strip()]
 
 
-def _onde(uf, cnae, situacao, porte, municipio, capital_min,
+def _onde(uf, cnae, situacao, porte, municipio,
           apenas_matriz=False, excluir_entregues=True):
     cond, par = [], []
 
@@ -111,10 +111,6 @@ def _onde(uf, cnae, situacao, porte, municipio, capital_min,
         cond.append(f"({' OR '.join(['UPPER(m.descricao) LIKE ?'] * len(municipio))})")
         par += [f"%{x.upper()}%" for x in municipio]
 
-    if capital_min is not None:
-        cond.append("TRY_CAST(REPLACE(em.capital_social, ',', '.') AS DOUBLE) >= ?")
-        par.append(float(capital_min))
-
     return (" WHERE " + " AND ".join(cond) if cond else ""), par
 
 
@@ -132,34 +128,27 @@ SELECT
   e.cnae_principal,
   c.descricao                                            AS cnae_descricao,
   CASE em.porte WHEN '01' THEN 'MICROEMPRESA' WHEN '03' THEN 'PEQUENO PORTE'
-       WHEN '05' THEN 'MEDIO/GRANDE PORTE' ELSE 'NAO INFORMADO' END AS porte,
-  TRY_CAST(REPLACE(em.capital_social, ',', '.') AS DOUBLE) AS capital_social
--- Nome fantasia, bairro, data de abertura, telefone e e-mail NÃO entram: o
--- índice da Receita responde só "quais CNPJs existem em tal estado, cidade e
--- CNAE". Todo o resto do lead vem da API do EmpresAqui, e guardar aqui era
--- duplicata que custava disco e memória numa máquina de 1 GB.
+       WHEN '05' THEN 'MEDIO/GRANDE PORTE' ELSE 'NAO INFORMADO' END AS porte
+-- O índice responde UMA pergunta: quais CNPJs existem em tal estado, cidade e
+-- CNAE. Nome fantasia, bairro, abertura, telefone, e-mail e capital social NÃO
+-- entram — tudo isso vem da API do EmpresAqui, e guardar aqui era duplicata
+-- que custava disco e memória numa máquina de 1 GB.
 FROM estabelecimentos e
 LEFT JOIN empresas   em ON em.cnpj_basico = e.cnpj_basico
 LEFT JOIN municipios m  ON m.codigo       = e.municipio
 LEFT JOIN cnaes      c  ON c.codigo       = e.cnae_principal
 """
 
-# Só o que o índice enxuto sabe ordenar. A ordem importa de verdade: ela
-# decide quem entra nos primeiros 100 e, como empresa entregue nunca volta,
-# quem fica para a próxima lista.
-ORDENS = {
-    # Desempate por CNPJ: sem ele, duas pesquisas iguais podem devolver
-    # ordens diferentes entre empresas de mesmo capital, e a fatia 1 de hoje
-    # não seria a fatia 1 de amanhã.
-    "capital": "capital_social DESC NULLS LAST, cnpj",
-    "cnpj": "cnpj",
-}
+# Uma ordem só, e estável. A ordem importa porque empresa entregue nunca
+# volta: quem fica fora dos primeiros 100 vai para a lista seguinte. Ordenar
+# por CNPJ garante que a fatia 1 de hoje é a mesma fatia 1 de amanhã.
+ORDENS = {"cnpj": "cnpj"}
 
 
 def contar(db=None, **f) -> int:
     """Conta antes de gastar. O portão do funil começa aqui."""
     onde, par = _onde(f.get("uf"), f.get("cnae"), f.get("situacao", "ativa"),
-                      f.get("porte"), f.get("municipio"), f.get("capital_min"),
+                      f.get("porte"), f.get("municipio"),
                       f.get("apenas_matriz", False),
                       f.get("excluir_entregues", True))
     con = _conectar(db)
@@ -172,11 +161,11 @@ def contar(db=None, **f) -> int:
 
 
 def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,
-           municipio=None, capital_min=None, apenas_matriz=False,
-           excluir_entregues=True, ordenar="capital", limite=None) -> list[dict]:
-    onde, par = _onde(uf, cnae, situacao, porte, municipio, capital_min,
+           municipio=None, apenas_matriz=False,
+           excluir_entregues=True, ordenar="cnpj", limite=None) -> list[dict]:
+    onde, par = _onde(uf, cnae, situacao, porte, municipio,
                       apenas_matriz, excluir_entregues)
-    sql = _SELECT + onde + f" ORDER BY {ORDENS.get(ordenar, ORDENS['capital'])}"
+    sql = _SELECT + onde + f" ORDER BY {ORDENS.get(ordenar, ORDENS['cnpj'])}"
     if limite:
         sql += f" LIMIT {int(limite)}"
     con = _conectar(db)

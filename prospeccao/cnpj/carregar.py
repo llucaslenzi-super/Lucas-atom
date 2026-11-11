@@ -35,8 +35,7 @@ COLUNAS = {
     "estabelecimentos": ["cnpj_basico", "cnpj_ordem", "cnpj_dv", "uf",
                          "municipio", "cnae_principal", "situacao_cadastral",
                          "matriz_filial"],
-    # capital_social fica: e a coluna que ordena quem entra nos primeiros 100.
-    "empresas": ["cnpj_basico", "razao_social", "porte", "capital_social"],
+    "empresas": ["cnpj_basico", "razao_social", "porte"],
 }
 # 02 = ATIVA. Empresa baixada ou inapta não é lead.
 SO_ATIVAS = "situacao_cadastral = '02'"

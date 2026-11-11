@@ -221,9 +221,9 @@ def test_cache_guarda_nao_encontrado(tmp_path):
 def test_teto_de_dois_cnaes_no_filtro():
     from cnpj.buscar import CnaesDemais, MAX_CNAES, _onde
     assert MAX_CNAES == 2
-    _onde(None, "13,14", "ativa", None, None, None, False, False)
+    _onde(None, "13,14", "ativa", None, None, False, False)
     with pytest.raises(CnaesDemais):
-        _onde(None, "13,14,15", "ativa", None, None, None, False, False)
+        _onde(None, "13,14,15", "ativa", None, None, False, False)
 
 
 def test_planilha_nao_tem_teto_de_cnae():
@@ -358,10 +358,10 @@ def _base_de_teste(tmp_path):
         situacao_cadastral,identificador_matriz_filial))
       TO '{bruto / "estabelecimentos__a.parquet"}' (FORMAT PARQUET)""")
     c.execute(f"""COPY (SELECT * FROM (VALUES
-      ('11111111','ALFA TECELAGEM LTDA','03','150000,00'),
-      ('22222222','BETA MALHAS SA','05','9000000,00'),
-      ('44444444','GAMA COMERCIO ME','01','5000,00'))
-      t(cnpj_basico,razao_social,porte_empresa,capital_social_da_empresa))
+      ('11111111','ALFA TECELAGEM LTDA','03'),
+      ('22222222','BETA MALHAS SA','05'),
+      ('44444444','GAMA COMERCIO ME','01'))
+      t(cnpj_basico,razao_social,porte_empresa))
       TO '{bruto / "empresas__a.parquet"}' (FORMAT PARQUET)""")
     c.execute(f"""COPY (SELECT * FROM (VALUES
       ('1399400','Fabricação de outros produtos têxteis'),
@@ -399,15 +399,15 @@ def test_consulta_roda_contra_o_esquema_real(tmp_path, monkeypatch):
 
     linhas = mod.buscar(db=db, uf="SC", excluir_entregues=False)
     assert len(linhas) == 2
-    # maior capital primeiro — é a ordem que decide quem entra nos 100
-    assert linhas[0]["razao_social"] == "BETA MALHAS SA"
-    assert linhas[0]["capital_social"] == 9000000.0
-    assert linhas[0]["cnpj"] == "22222222000222"
+    # ordem por CNPJ, estável: a fatia 1 de hoje é a fatia 1 de amanhã
+    assert [l["cnpj"] for l in linhas] == ["11111111000111", "22222222000222"]
+    assert linhas[0]["razao_social"] == "ALFA TECELAGEM LTDA"
     assert linhas[0]["municipio"] == "GASPAR"
     assert linhas[0]["cnae_descricao"].startswith("Fabricação")
     assert linhas[0]["situacao"] == "ATIVA"
-    assert linhas[0]["matriz_filial"] == "FILIAL"
-    assert linhas[1]["matriz_filial"] == "MATRIZ"
+    assert linhas[0]["matriz_filial"] == "MATRIZ"
+    assert linhas[0]["porte"] == "PEQUENO PORTE"
+    assert linhas[1]["matriz_filial"] == "FILIAL"
 
     # toda ordenação oferecida tem de rodar: uma que referencie coluna
     # inexistente só aparece quando alguém a usa
@@ -430,9 +430,9 @@ def test_portao_pega_coluna_que_o_espelho_nao_trouxe(tmp_path, monkeypatch):
 
     con = duckdb.connect(str(db))
     con.execute("DROP INDEX IF EXISTS ix_empresas_cnpj_basico")
-    con.execute("ALTER TABLE empresas DROP COLUMN capital_social")
+    con.execute("ALTER TABLE empresas DROP COLUMN razao_social")
     con.close()
 
     ok, falhas = carregar.verificar(db)
     assert not ok
-    assert any("capital_social" in f for f in falhas), falhas
+    assert any("razao_social" in f for f in falhas), falhas
