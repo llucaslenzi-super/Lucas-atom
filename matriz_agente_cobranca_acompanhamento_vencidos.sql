@@ -130,4 +130,4 @@ FROM agg a
 JOIN clientes_clean cc ON cc.codcliente = a.codcliente
 JOIN ciclo_predominante cp ON cp.codcliente = a.codcliente AND cp.rn = 1
 JOIN tipos_por_cliente tpc ON tpc.codcliente = a.codcliente
-ORDER BY a.dias_vencido_max DESC, a.valor_total DESC
+ORDER BY cc.nome ASC

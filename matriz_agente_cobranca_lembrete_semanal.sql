@@ -136,4 +136,4 @@ FROM metricas m
 JOIN clientes_clean cc ON cc.codcliente = m.codcliente
 JOIN tipos_por_cliente tpc ON tpc.codcliente = m.codcliente
 JOIN mensagem_agg ma ON ma.codcliente = m.codcliente
-ORDER BY m.valor_total DESC
+ORDER BY cc.nome ASC

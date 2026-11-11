@@ -142,4 +142,4 @@ JOIN clientes_clean cc ON cc.codcliente = m.codcliente
 JOIN ciclo_predominante cp ON cp.codcliente = m.codcliente AND cp.rn = 1
 JOIN tipos_por_cliente tpc ON tpc.codcliente = m.codcliente
 JOIN mensagem_agg ma ON ma.codcliente = m.codcliente
-ORDER BY m.dias_vencido_max DESC, m.valor_total DESC
+ORDER BY cc.nome ASC
