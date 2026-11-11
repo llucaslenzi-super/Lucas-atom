@@ -290,7 +290,10 @@ def verificar(db: Path | None = None) -> tuple[bool, list[str]]:
             return False, falhas
 
         n = con.execute("SELECT COUNT(*) FROM estabelecimentos").fetchone()[0]
-        if n < 50_000_000:
+        # O índice guarda só estabelecimentos ATIVOS: ~28,4 mi dos 73,8 mi
+        # totais. O piso tem de refletir isso, senão o portão reprova uma
+        # carga correta e a instalação morre no fim.
+        if n < 20_000_000:
             falhas.append(f"estabelecimentos com {n:,} linhas — carga parcial?")
 
         ufs = con.execute("SELECT uf, COUNT(*) c FROM estabelecimentos "
