@@ -32,16 +32,16 @@ titulos AS (
     TRY_CAST(cr.documento AS BIGINT) AS doc_int,
     CASE cr.tipodocumento
       WHEN 10 THEN 'BOLETO'
-      WHEN 80 THEN 'PIX'
-      WHEN 3  THEN 'CHEQUE'
-      WHEN 68 THEN 'CHEQUE'
-      WHEN 7  THEN 'CREDIÁRIO'
       WHEN 5  THEN 'CREDIÁRIO'
+      WHEN 6  THEN 'BOLETO EM PROTESTO'
+      WHEN 16 THEN 'CHEQUE NEGATIVADO'
+      WHEN 21 THEN 'CHEQUE EM PROTESTO'
+      WHEN 67 THEN 'CHEQUE DEVOLVIDO'
     END AS tipo_doc_nome
   FROM nekt_raw.mssql_matriz_dbo_cr_documentos cr
   CROSS JOIN janela j
   WHERE cr.saldodocumento > 0
-    AND cr.tipodocumento IN (10, 80, 3, 7, 68, 5)
+    AND cr.tipodocumento IN (67, 6, 16, 21, 5, 10)
     AND CAST(cr.datavencimento AS DATE) BETWEEN j.data_inicio AND j.data_fim
 ),
 pedidos_por_titulo AS (

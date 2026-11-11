@@ -20,8 +20,8 @@ titulos AS (
   FROM nekt_raw.mssql_gaspar_dbo_cr_documentos cr
   CROSS JOIN params p
   WHERE cr.saldodocumento > 0
-    AND cr.tipodocumento IN (10, 80, 70, 3, 7, 68)
-    AND CAST(cr.datavencimento AS DATE) BETWEEN date_add('day', -180, p.data_execucao) AND date_add('day', -2, p.data_execucao)
+    AND cr.tipodocumento IN (67, 6, 16, 21, 5, 10)
+    AND CAST(cr.datavencimento AS DATE) <= date_add('day', -2, p.data_execucao)
 ),
 nf_link AS (
   SELECT t.codcliente, t.tipodocumento, t.documento, t.parcela,

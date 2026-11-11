@@ -22,17 +22,17 @@ titulos AS (
     TRY_CAST(cr.documento AS BIGINT) AS doc_int,
     CASE cr.tipodocumento
       WHEN 10 THEN 'BOLETO'
-      WHEN 80 THEN 'PIX'
-      WHEN 3  THEN 'CHEQUE'
-      WHEN 68 THEN 'CHEQUE'
-      WHEN 7  THEN 'CREDIÁRIO'
       WHEN 5  THEN 'CREDIÁRIO'
+      WHEN 6  THEN 'BOLETO EM PROTESTO'
+      WHEN 16 THEN 'CHEQUE NEGATIVADO'
+      WHEN 21 THEN 'CHEQUE EM PROTESTO'
+      WHEN 67 THEN 'CHEQUE DEVOLVIDO'
     END AS tipo_doc_nome
   FROM nekt_raw.mssql_loja_sp_dbo_cr_documentos cr
   CROSS JOIN params p
   WHERE cr.saldodocumento > 0
-    AND cr.tipodocumento IN (10, 80, 3, 7, 68, 5)
-    AND CAST(cr.datavencimento AS DATE) BETWEEN date_add('day', -180, p.data_execucao) AND date_add('day', -2, p.data_execucao)
+    AND cr.tipodocumento IN (67, 6, 16, 21, 5, 10)
+    AND CAST(cr.datavencimento AS DATE) <= date_add('day', -2, p.data_execucao)
 ),
 pedidos_por_titulo AS (
   SELECT t.codcliente, t.tipodocumento, t.documento, t.parcela,
