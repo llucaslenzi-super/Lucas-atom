@@ -102,9 +102,13 @@ def achatar(resposta: dict) -> list[dict]:
         if not isinstance(enr, dict):
             enr = {}
 
-        # Sócios: chaves numéricas na raiz, não array.
-        socios = [r[k] for k in sorted((k for k in r if k.isdigit()), key=int)
-                  if isinstance(r[k], dict)]
+        # Chaves numéricas na raiz guardam DUAS coisas misturadas: sócios e
+        # dívidas. Medido em 61 empresas: 11 delas (18%) tinham registro de
+        # dívida entre os sócios. Separar pelo campo que cada uma carrega.
+        numericas = [r[k] for k in sorted((k for k in r if k.isdigit()), key=int)
+                     if isinstance(r[k], dict)]
+        socios = [d for d in numericas if d.get("socios_nome")]
+        dividas = [d for d in numericas if d.get("dividas_numero")]
         decisor = next(
             (s for s in socios
              if any(q in str(s.get("socios_qualificacao", "")).upper()
@@ -150,16 +154,38 @@ def achatar(resposta: dict) -> list[dict]:
             "telefone_2": tel("ddd_2", "tel_2"),
             "email": r.get("email"),
             "site": site or None,
-            # decisor
-            "socio_admin": decisor.get("socios_nome"),
-            "socio_admin_qualificacao": decisor.get("socios_qualificacao"),
-            "socio_admin_entrada": _data(decisor.get("socios_entrada")),
+            # sócios — TODOS, em coluna única; a ordem é a mesma nas três
+            "socios": [s.get("socios_nome") for s in socios if s.get("socios_nome")],
+            "socios_qualificacoes": [s.get("socios_qualificacao") for s in socios],
+            "socios_entrada": [_data(s.get("socios_entrada")) for s in socios],
+            "socios_cpf": [s.get("socios_cpf_cnpj") for s in socios],
             "qtd_socios": len(socios),
-            # dívidas
-            "qtd_dividas": sum(
+            # dívida ativa detalhada — 8 campos que só aparecem nas chaves numéricas
+            "qtd_dividas": len(dividas),
+            "divida_valor_total": sum(
+                float(d["dividas_valor"]) for d in dividas
+                if str(d.get("dividas_valor", "")).replace(".", "").isdigit()
+            ) or None,
+            "dividas_valores": [d.get("dividas_valor") for d in dividas],
+            "dividas_receitas": [d.get("dividas_receita") for d in dividas],
+            "dividas_situacoes": [d.get("dividas_tipo_situacao") for d in dividas],
+            "dividas_inscricoes": [d.get("dividas_inscricao") for d in dividas],
+            "dividas_datas": [d.get("dividas_data") for d in dividas],
+            "dividas_numeros": [d.get("dividas_numero") for d in dividas],
+            # histórico trimestral — sempre 26 trimestres
+            "qtd_trimestres_com_divida": sum(
                 1 for d in (r.get("historicoDividasPorTrimestre") or [])
                 if isinstance(d, dict) and "NAO POSSUI" not in str(d.get("valor", "")).upper()
             ),
+            "historico_dividas": [
+                f"{d.get('trimestreAno')}={d.get('valor')}"
+                for d in (r.get("historicoDividasPorTrimestre") or []) if isinstance(d, dict)
+            ],
+            "historico_regime_por_ano": [
+                f"{d.get('ano')}={d.get('regime')}"
+                for d in (r.get("historicoRegimePorAno") or []) if isinstance(d, dict)
+            ],
+            "enrichment_vazio": enr == {},
         }
         for c in CAMPOS_ENRICHMENT:
             linha[f"enr_{c}"] = enr.get(c)
@@ -212,6 +238,11 @@ class EmpresAqui:
         return r[0], (json.loads(r[1]) if r[1] else None)
 
     def _guardar(self, cnpj: str, http: int, dados):
+        # Só resultado definitivo entra no cache. Falha de rede, 429 e 5xx são
+        # transitórios: guardá-los marcaria o CNPJ como falho PARA SEMPRE, e a
+        # empresa sumiria de toda lista futura sem o lote acusar erro nenhum.
+        if http not in (200, 404):
+            return
         self.db.execute(
             "INSERT OR REPLACE INTO cache VALUES (?,?,?,datetime('now'))",
             (cnpj, http, json.dumps(dados, ensure_ascii=False) if dados else None),
