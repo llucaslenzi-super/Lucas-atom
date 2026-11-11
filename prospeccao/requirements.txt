@@ -1,0 +1,5 @@
+# Versões fixas: o formato de armazenamento do DuckDB é versionado.
+# Um pip install -U entre dois ciclos gera arquivo que a API em execução não abre.
+duckdb==2.0.0
+openpyxl==3.1.5
+reportlab==4.2.5  # instalado aqui: 5.0.1 — fixar na versão usada em produção

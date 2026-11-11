@@ -15,6 +15,7 @@ Limite: 1 requisição por segundo por token.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 import urllib.error
@@ -94,110 +95,212 @@ def _registros(resposta: dict) -> list[dict]:
     return [resposta] if "cnpj" in resposta else []
 
 
+def _digitos(v):
+    return "".join(c for c in str(v or "") if c.isdigit())
+
+
+def _handle_ig(v):
+    """URL ou handle cru → @handle. Vale para o que o Maps e o IG devolvem."""
+    if not v:
+        return None
+    s = str(v).strip().rstrip("/")
+    if "instagram.com" in s:
+        s = s.split("instagram.com/")[-1].split("/")[0].split("?")[0]
+    s = s.lstrip("@").strip()
+    return "@" + s if s else None
+
+
+# Os campos *_texto do enrichment separam por " | ", não por vírgula.
+# Medido: 7 e-mails, 3 telefones, 2 whatsapps e 2 instagrams com pipe.
+# Tratar como vírgula transformava quatro e-mails numa string só.
+_SEPARADORES = re.compile(r"[|,;\n]")
+
+# Lixo que a própria fonte entrega. Não é invenção nossa descartar:
+# u002f é uma barra escapada que vazou para dentro do endereço.
+_EMAIL_LIXO = re.compile(r"^(exemplo|example|teste|test|email|seu)@|u002f", re.I)
+_EMAIL_OK = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)
+
+
+def _lista(*fontes):
+    """Achata, limpa e desduplica preservando a ordem de chegada."""
+    out = []
+    for f in fontes:
+        if f in (None, "", []):
+            continue
+        itens = f if isinstance(f, (list, tuple, set)) else _SEPARADORES.split(str(f))
+        for v in itens:
+            v = str(v).strip()
+            if v and v not in out:
+                out.append(v)
+    return out
+
+
+def _emails_validos(valores):
+    """Formato válido e sem os marcadores de exemplo da fonte."""
+    return [v for v in valores if _EMAIL_OK.match(v) and not _EMAIL_LIXO.search(v)]
+
+
 def achatar(resposta: dict) -> list[dict]:
-    """Um registro da API → uma linha plana, pronta pra CSV."""
+    """Um registro da API → uma linha com as 78 colunas de cnpj.colunas."""
+    from datetime import date
     linhas = []
     for r in _registros(resposta):
         enr = r.get("enrichment") or {}
         if not isinstance(enr, dict):
             enr = {}
 
-        # Chaves numéricas na raiz guardam DUAS coisas misturadas: sócios e
-        # dívidas. Medido em 61 empresas: 11 delas (18%) tinham registro de
-        # dívida entre os sócios. Separar pelo campo que cada uma carrega.
+        # Chaves numéricas da raiz guardam DUAS coisas misturadas: sócios e
+        # dívidas ativas. Medido em 61 empresas: 11 delas (18%) tinham registro
+        # de dívida entre os sócios. Separar pelo campo que cada uma carrega.
         numericas = [r[k] for k in sorted((k for k in r if k.isdigit()), key=int)
                      if isinstance(r[k], dict)]
         socios = [d for d in numericas if d.get("socios_nome")]
         dividas = [d for d in numericas if d.get("dividas_numero")]
-        decisor = next(
-            (s for s in socios
-             if any(q in str(s.get("socios_qualificacao", "")).upper()
-                    for q in QUALIFICACAO_DECISOR)),
-            socios[0] if socios else {},
+
+        # ---------- contato: TUDO junto, uma coluna por canal ----------
+        # Fixo e WhatsApp na MESMA coluna: não há como saber qual número tem
+        # WhatsApp, e separar seria inventar informação.
+        contatos = _lista(
+            _digitos(f"{r.get('ddd_1') or ''}{r.get('tel_1') or ''}") or None,
+            _digitos(f"{r.get('ddd_2') or ''}{r.get('tel_2') or ''}") or None,
+            [_digitos(x) for x in _lista(enr.get("telefone_principal"),
+                                         enr.get("telefones_texto"),
+                                         enr.get("whatsapp_principal"),
+                                         enr.get("whatsapps_texto"))],
         )
+        emails = _emails_validos([e.lower() for e in _lista(
+            r.get("email"), enr.get("email_principal"), enr.get("emails_texto"))])
+        instas = _lista([_handle_ig(x) for x in
+                         _lista(enr.get("instagram_principal"), enr.get("instagram_texto"))])
+        sites = _lista(_url(r.get("site")), _url(enr.get("site_validado")))
 
-        site = (r.get("site") or "").strip()
-        if site and not site.startswith(("http://", "https://")):
-            site = "https://" + site
-
-        tel = lambda d, n: (f"{r.get(d) or ''}{r.get(n) or ''}").strip() or None
+        prog = r.get("programas_especiais") or []
+        temp = lambda alvo: any(alvo in str(p).upper() for p in prog)
+        abertura = _data(r.get("data_abertura"))
 
         linha = {
+            # ---------- núcleo (ordem definida pelo cliente) ----------
             "cnpj": r.get("cnpj"),
             "razao_social": r.get("razao"),
             "nome_fantasia": r.get("fantasia"),
-            "situacao": config.SITUACAO.get(str(r.get("situacao_cadastral")), r.get("situacao_cadastral")),
-            "matriz_filial": {"1": "MATRIZ", "2": "FILIAL"}.get(str(r.get("matriz")), None),
-            "uf": r.get("log_uf"),
-            "municipio": r.get("log_municipio"),
-            "bairro": r.get("log_bairro"),
-            "logradouro": " ".join(x for x in (r.get("log_tipo"), r.get("log_nome"), r.get("log_num")) if x),
-            "complemento": " ".join((r.get("log_comp") or "").split()),  # vem com espaço duplo
-            "cep": r.get("log_cep"),
-            "cnae_principal": r.get("cnae_principal"),
-            "cnae_secundario": r.get("cnae_secundario"),   # CSV, não array
-            "natureza_juridica": r.get("natureza_juridica"),
+            "contatos": contatos,
+            "email": emails,
+            "instagram": instas,
+            "site": sites,
+            "cidade": r.get("log_municipio"),
+            "estado": r.get("log_uf"),
+            "socios": [s.get("socios_nome") for s in socios if s.get("socios_nome")],
+            "cnae_codigo": (r.get("cnae_principal") or "").split(" - ")[0] or None,
+            "cnae_descricao": (r.get("cnae_principal") or "").split(" - ", 1)[-1] or None,
+            # ---------- redes ----------
+            "linkedin": _lista(enr.get("linkedin_principal"), enr.get("linkedin_texto")),
+            "facebook": _lista(enr.get("facebook_principal"), enr.get("facebook_texto")),
+            "google_maps": _lista(enr.get("google_maps_texto")),
+            # ---------- empresa ----------
             "porte": config.PORTE_API.get(str(r.get("porte")), r.get("porte")),
+            "situacao": config.SITUACAO.get(str(r.get("situacao_cadastral")),
+                                            r.get("situacao_cadastral")),
+            "data_situacao": _data(r.get("data_sit_cad")),
+            "data_abertura": abertura,
+            "idade_anos": (date.today().year - int(abertura[:4])) if abertura else None,
+            "natureza_juridica": r.get("natureza_juridica"),
             "capital_social": r.get("capital_social"),
             "faturamento": r.get("faturamento"),
             "quadro_funcionarios": r.get("quadro_funcionarios"),
-            "regime_tributario": r.get("regime_tributario"),
+            "matriz_filial": {"1": "MATRIZ", "2": "FILIAL"}.get(str(r.get("matriz"))),
+            "cnpj_base": (r.get("cnpj") or "")[:8] or None,
+            # ---------- fiscal ----------
+            "regime_tributario": (r.get("regime_tributario") or "").strip("; ") or None,
+            "historico_regime_por_ano": [f"{d.get('ano')}={d.get('regime')}"
+                                         for d in (r.get("historicoRegimePorAno") or [])
+                                         if isinstance(d, dict)],
             "opcao_simples": r.get("opcao_simples"),
+            "data_simples": _data(r.get("data_simples")),
+            "data_exclusao_simples": _data(r.get("data_exc_simples")),
             "opcao_mei": r.get("opcao_mei"),
-            "data_abertura": _data(r.get("data_abertura")),
-            "data_situacao": _data(r.get("data_sit_cad")),
-            "programas_especiais": "; ".join(r.get("programas_especiais") or []),
-            "importa_exporta": any("IMPORTA" in str(p).upper()
-                                   for p in (r.get("programas_especiais") or [])),
-            # contato cadastral
-            "telefone_1": tel("ddd_1", "tel_1"),
-            "telefone_2": tel("ddd_2", "tel_2"),
-            "email": r.get("email"),
-            "site": site or None,
-            # sócios — TODOS, em coluna única; a ordem é a mesma nas três
-            "socios": [s.get("socios_nome") for s in socios if s.get("socios_nome")],
+            "data_mei": _data(r.get("data_mei")),
+            "data_exclusao_mei": _data(r.get("data_exc_mei")),
+            # ---------- atividade ----------
+            "cnae_secundario_codigos": _lista(r.get("cnae_secundario")),
+            "cnae_secundario_descricoes": [],   # preenchido no join com a base
+            # ---------- programas ----------
+            "programas_especiais": _lista(prog),
+            "importa_exporta": temp("IMPORTA"),
+            "empresa_cidada": temp("CIDAD"),
+            "pat": temp("PAT"),
+            "recuperacao_judicial": temp("RECUPERACAO"),
+            # ---------- endereço ----------
+            "logradouro": " ".join(x for x in (r.get("log_tipo"), r.get("log_nome")) if x) or None,
+            "numero": r.get("log_num"),
+            "complemento": " ".join((r.get("log_comp") or "").split()) or None,
+            "bairro": r.get("log_bairro"),
+            "cep": r.get("log_cep"),
+            "municipio_codigo": None,
+            "pais": None,
+            # ---------- sócios (mesma ordem da coluna socios) ----------
             "socios_qualificacoes": [s.get("socios_qualificacao") for s in socios],
             "socios_entrada": [_data(s.get("socios_entrada")) for s in socios],
             "socios_cpf": [s.get("socios_cpf_cnpj") for s in socios],
             "qtd_socios": len(socios),
-            # dívida ativa detalhada — 8 campos que só aparecem nas chaves numéricas
+            # ---------- dívida ativa detalhada ----------
             "qtd_dividas": len(dividas),
-            "divida_valor_total": sum(
+            "divida_valor_total": round(sum(
                 float(d["dividas_valor"]) for d in dividas
-                if str(d.get("dividas_valor", "")).replace(".", "").isdigit()
-            ) or None,
+                if str(d.get("dividas_valor", "")).replace(".", "").isdigit()), 2) or None,
             "dividas_valores": [d.get("dividas_valor") for d in dividas],
             "dividas_receitas": [d.get("dividas_receita") for d in dividas],
             "dividas_situacoes": [d.get("dividas_tipo_situacao") for d in dividas],
             "dividas_inscricoes": [d.get("dividas_inscricao") for d in dividas],
             "dividas_datas": [d.get("dividas_data") for d in dividas],
             "dividas_numeros": [d.get("dividas_numero") for d in dividas],
-            # histórico trimestral — sempre 26 trimestres
             "qtd_trimestres_com_divida": sum(
                 1 for d in (r.get("historicoDividasPorTrimestre") or [])
-                if isinstance(d, dict) and "NAO POSSUI" not in str(d.get("valor", "")).upper()
-            ),
-            "historico_dividas": [
-                f"{d.get('trimestreAno')}={d.get('valor')}"
-                for d in (r.get("historicoDividasPorTrimestre") or []) if isinstance(d, dict)
-            ],
-            "historico_regime_por_ano": [
-                f"{d.get('ano')}={d.get('regime')}"
-                for d in (r.get("historicoRegimePorAno") or []) if isinstance(d, dict)
-            ],
-            "enrichment_vazio": enr == {},
+                if isinstance(d, dict)
+                and "NAO POSSUI" not in str(d.get("valor", "")).upper()),
+            "historico_dividas": [f"{d.get('trimestreAno')}={d.get('valor')}"
+                                  for d in (r.get("historicoDividasPorTrimestre") or [])
+                                  if isinstance(d, dict)],
+            # ---------- scraping: preenchido pelo apify ----------
+            "maps_titulo": None, "maps_categoria": None, "maps_endereco": None,
+            "instagram_bio": None, "instagram_seguidores": None,
+            "instagram_categoria": None, "match_score": None,
+            # ---------- procedência ----------
+            "enrichment_vazio": not enr,
+            "base_competencia": None, "extraido_em": None, "lote_id": None,
         }
-        for c in CAMPOS_ENRICHMENT:
-            linha[f"enr_{c}"] = enr.get(c)
 
-        # Procedência por campo — exigência de auditoria/LGPD.
-        linha["fonte_telefone"] = ("empresaqui_enrichment" if enr.get("telefone_principal")
-                                   else "receita_cadastral" if linha["telefone_1"] else None)
-        linha["fonte_email"] = ("empresaqui_enrichment" if enr.get("email_principal")
-                                else "receita_cadastral" if linha["email"] else None)
-        linha["fonte_whatsapp"] = "empresaqui_enrichment" if enr.get("whatsapp_principal") else None
+        # Uma coluna só para filtrar risco no Excel, em vez de ler três.
+        linha["situacao_alerta"] = bool(
+            linha["situacao"] != "ATIVA" or linha["qtd_dividas"]
+            or linha["recuperacao_judicial"])
+
+        # Procedência: quem venceu a consolidação assina o campo. Recalculada
+        # depois do Apify, em apify.enriquecer_lote.
+        linha["fonte_contatos"] = _fontes(contatos, r, enr, "tel")
+        linha["fonte_email"] = _fontes(emails, r, enr, "email")
+        linha["fonte_instagram"] = ["empresaqui"] * len(instas)
+        linha["fonte_site"] = _fontes(sites, r, enr, "site")
         linhas.append(linha)
     return linhas
+
+
+def _url(v):
+    v = (str(v or "")).strip()
+    if not v:
+        return None
+    return v if v.startswith(("http://", "https://")) else "https://" + v
+
+
+def _fontes(valores, r, enr, tipo):
+    """Marca a origem de cada valor, na mesma ordem da coluna."""
+    cadastrais = {
+        "tel": {_digitos(f"{r.get('ddd_1') or ''}{r.get('tel_1') or ''}"),
+                _digitos(f"{r.get('ddd_2') or ''}{r.get('tel_2') or ''}")},
+        "email": {(r.get("email") or "").lower()},
+        "site": {_url(r.get("site"))},
+    }[tipo]
+    return ["receita" if v in cadastrais else "empresaqui" for v in valores]
+
 
 
 # ──────────────────────────────────────────────────────────── cliente

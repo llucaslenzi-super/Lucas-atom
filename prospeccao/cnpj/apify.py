@@ -104,19 +104,22 @@ def maps(termos: list[str], pais="Brazil", por_busca=10,
 
 
 def de_maps(item: dict) -> dict:
-    emails = item.get("emails") or []
-    whats = item.get("whatsapps") or []
-    insta = item.get("instagrams") or []
+    """
+    TODAS as listas, não o primeiro item.
+
+    O código anterior guardava emails[0] e descartava o resto — um lugar com
+    quatro e-mails entregava um. O que o Maps acha entra nas MESMAS colunas
+    do EmpresAqui, não em colunas maps_* paralelas.
+    """
     return {
         "maps_titulo": item.get("title"),
-        "maps_telefone": item.get("phone"),
-        "maps_site": item.get("website"),
         "maps_endereco": item.get("address"),
         "maps_categoria": item.get("categoryName"),
-        "maps_email": emails[0] if emails else None,
-        "maps_whatsapp": whats[0] if whats else None,
-        "maps_instagram": insta[0] if insta else None,
-        "maps_qtd_emails": len(emails),
+        # para fundir nas colunas consolidadas:
+        "_contatos": [item.get("phone")] + list(item.get("whatsapps") or []),
+        "_email": list(item.get("emails") or []),
+        "_instagram": list(item.get("instagrams") or []),
+        "_site": [item.get("website")],
     }
 
 
@@ -141,12 +144,11 @@ def instagram(handles: list[str]) -> list[dict]:
 
 def de_instagram(item: dict) -> dict:
     return {
-        "ig_handle": item.get("username"),
-        "ig_nome": item.get("fullName"),
-        "ig_bio": item.get("biography"),
-        "ig_site": item.get("externalUrl"),
-        "ig_categoria": item.get("businessCategoryName"),
-        "ig_seguidores": item.get("followersCount"),
+        "instagram_bio": item.get("biography"),
+        "instagram_categoria": item.get("businessCategoryName"),
+        "instagram_seguidores": item.get("followersCount"),
+        "_site": [item.get("externalUrl")],
+        "_instagram": [item.get("username")],
     }
 
 
@@ -197,7 +199,7 @@ def _norm(s) -> str:
 
 
 def casar(leads: list[dict], itens: list[dict], extrair, chave_item: str,
-          chave_lead="razao_social", minimo=0.62) -> int:
+          chave_lead="razao_social", minimo=0.62, fonte="maps") -> int:
     """
     Casa resultado de scraping de volta no lead certo, por similaridade de nome.
 
@@ -221,10 +223,40 @@ def casar(leads: list[dict], itens: list[dict], extrair, chave_item: str,
             if p > pontos:
                 melhor, pontos = i, p
         if melhor is not None and pontos >= minimo:
-            leads[melhor].update(extrair(item))
+            _fundir(leads[melhor], extrair(item), fonte)
             leads[melhor]["match_score"] = round(pontos, 3)
             casados += 1
     return casados
+
+
+def _fundir(lead: dict, novo: dict, fonte: str):
+    """
+    Campo _xxx entra na coluna consolidada xxx, desduplicado, e marca a
+    procedência na posição correspondente. O resto vira coluna própria.
+    """
+    from .empresaqui import _digitos, _emails_validos, _handle_ig, _url
+    limpar = {"_contatos": lambda v: _digitos(v) or None,
+              "_email": lambda v: str(v).strip().lower(),
+              "_instagram": _handle_ig,
+              "_site": _url}
+    for k, v in novo.items():
+        if not k.startswith("_"):
+            if v not in (None, ""):
+                lead[k] = v
+            continue
+        col = k[1:]
+        atual = lead.get(col) or []
+        fontes = lead.get(f"fonte_{col}") or []
+        for bruto in (v or []):
+            limpo = limpar[k](bruto)
+            if not limpo or limpo in atual:
+                continue
+            if col == "email" and not _emails_validos([limpo]):
+                continue
+            atual.append(limpo)
+            fontes.append(fonte)
+        lead[col] = atual
+        lead[f"fonte_{col}"] = fontes
 
 
 def enriquecer_lote(leads: list[dict], usar_maps=True, usar_ig=True,
@@ -243,19 +275,19 @@ def enriquecer_lote(leads: list[dict], usar_maps=True, usar_ig=True,
 
     if usar_ig:
         # handle do EmpresAqui OU do Maps — nunca busca por palavra-chave
-        handles = [h for h in (_handle(l.get("enr_instagram_principal")
-                                       or l.get("maps_instagram")) for l in leads) if h]
+        handles = [h for l in leads for h in (l.get("instagram") or [])]
         if handles:
             itens = instagram(handles)
             resumo["ig_itens"] = len(itens)
             mapa = {(_handle(i.get("username")) or "").lower(): i for i in itens}
             n = 0
             for l in leads:
-                h = (_handle(l.get("enr_instagram_principal")
-                             or l.get("maps_instagram")) or "").lower()
-                if h and h in mapa:
-                    l.update(de_instagram(mapa[h]))
-                    n += 1
+                for h in (l.get("instagram") or []):
+                    chave = (_handle(h) or "").lower()
+                    if chave in mapa:
+                        _fundir(l, de_instagram(mapa[chave]), "instagram")
+                        n += 1
+                        break
             resumo["ig_casados"] = n
 
     if usar_li and nomes:

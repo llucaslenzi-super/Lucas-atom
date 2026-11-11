@@ -171,3 +171,178 @@ def escrever_csv(linhas: list[dict], caminho, colunas=None) -> Path:
             # Campo sem dado sai VAZIO. Nunca inventado.
             w.writerow({c: ("" if l.get(c) is None else l.get(c)) for c in colunas})
     return caminho
+
+
+# ════════════════════════════════════════════════════════════════════
+#  ESCRITA NOS TRÊS FORMATOS
+#  O separador é decidido AQUI, não na consolidação: a mesma lista vira
+#  ";" no CSV e XLSX e " - " no PDF.
+# ════════════════════════════════════════════════════════════════════
+
+from . import colunas as _c
+
+
+def _preparar(linhas, blocos=None, formato="csv"):
+    """Escolhe colunas, remove as vazias de verdade e junta os multivalores."""
+    cols = _c.colunas_de(blocos)
+
+    # Vazia é vazia de VALOR, não de chave. O código antigo testava
+    # `c in linha`, e como achatar() cria toda chave, nada era removido.
+    def tem_valor(c):
+        return any(l.get(c) not in (None, "", [], {}, False) or
+                   (isinstance(l.get(c), (int, float)) and l.get(c) == 0)
+                   for l in linhas)
+
+    cols = [c for c in cols if tem_valor(c)]
+    saida = [{c: _c.juntar(l.get(c), formato) for c in cols} for l in linhas]
+    return cols, saida
+
+
+def escrever_xlsx(linhas, caminho, blocos=None):
+    """Cabeçalho congelado, autofiltro, largura automática, CNPJ como TEXTO."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    cols, dados = _preparar(linhas, blocos, "xlsx")
+    caminho = Path(caminho); caminho.parent.mkdir(parents=True, exist_ok=True)
+    wb = Workbook(); ws = wb.active; ws.title = "Leads"
+
+    ws.append([_c.rotulo(c) for c in cols])
+    for cel in ws[1]:
+        cel.font = Font(bold=True, color="FFFFFF")
+        cel.fill = PatternFill("solid", fgColor="1F3864")
+        cel.alignment = Alignment(vertical="center")
+
+    for linha in dados:
+        ws.append([linha[c] for c in cols])
+
+    # CNPJ e CEP como texto, senão o Excel come o zero da frente
+    for i, c in enumerate(cols, 1):
+        letra = get_column_letter(i)
+        if c in _c.TEXTO_FORCADO:
+            for cel in ws[letra][1:]:
+                cel.number_format = "@"
+        largura = max([len(_c.rotulo(c))] + [len(str(l[c])) for l in dados[:200]] or [10])
+        ws.column_dimensions[letra].width = min(max(largura + 2, 10), 55)
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(caminho)
+    return caminho
+
+
+# Blocos do dossiê, na ordem em que aparecem na página
+_DOSSIE = [
+    ("CONTATO", ["contatos", "email", "instagram", "site", "linkedin", "facebook"]),
+    ("SÓCIOS", ["socios", "socios_qualificacoes", "qtd_socios"]),
+    ("QUALIFICAÇÃO", ["cnae_codigo", "cnae_descricao", "porte", "situacao",
+                      "data_abertura", "capital_social", "faturamento",
+                      "quadro_funcionarios", "importa_exporta"]),
+    ("ENDEREÇO", ["logradouro", "numero", "complemento", "bairro", "cidade",
+                  "estado", "cep"]),
+    ("RISCO", ["qtd_dividas", "divida_valor_total", "dividas_receitas",
+               "dividas_situacoes", "recuperacao_judicial"]),
+]
+
+
+def escrever_pdf(linhas, caminho, blocos=None):
+    """Dossiê: uma página por empresa. O bloco RISCO só sai se houver alerta."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (KeepTogether, PageBreak, Paragraph,
+                                    SimpleDocTemplate, Spacer, Table, TableStyle)
+
+    caminho = Path(caminho); caminho.parent.mkdir(parents=True, exist_ok=True)
+    doc = SimpleDocTemplate(str(caminho), pagesize=A4,
+                            leftMargin=18*mm, rightMargin=18*mm,
+                            topMargin=16*mm, bottomMargin=16*mm,
+                            title="Dossiê de Prospecção")
+    tit = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=15, leading=18,
+                         textColor=colors.HexColor("#1F3864"))
+    sub = ParagraphStyle("s", fontName="Helvetica", fontSize=9, leading=12,
+                         textColor=colors.HexColor("#666666"))
+    sec = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=8, leading=14,
+                         textColor=colors.HexColor("#1F3864"), spaceBefore=7)
+    pe = ParagraphStyle("f", fontName="Helvetica", fontSize=7, leading=9,
+                        textColor=colors.HexColor("#888888"))
+    corpo = ParagraphStyle("c", fontName="Helvetica", fontSize=8.5, leading=11)
+
+    pedidos = set(_c.colunas_de(blocos))
+
+    # O dossiê é documento de leitura. Itaú Unibanco tem 64 sócios: listar
+    # todos estoura a página, empurra o rodapé sozinho para a página seguinte
+    # e ninguém lê mesmo. A lista inteira continua no CSV e no XLSX.
+    TETO = 8
+
+    def _curto(valor):
+        if not isinstance(valor, (list, tuple)):
+            return _c.juntar(valor, "pdf")
+        itens = [str(x).strip() for x in valor if x not in (None, "", [])]
+        itens = list(dict.fromkeys(itens))
+        if len(itens) <= TETO:
+            return " - ".join(itens)
+        return " - ".join(itens[:TETO]) + f"  (+{len(itens) - TETO} não listados)"
+
+    hist = []
+    for n, l in enumerate(linhas):
+        v = _curto if False else (lambda c: _curto(l.get(c)))
+        hist += [Paragraph(l.get("razao_social") or "—", tit),
+                 Paragraph(f"{v('nome_fantasia') or '—'} · CNPJ {v('cnpj')} · "
+                           f"{v('cidade')}/{v('estado')}", sub), Spacer(1, 5)]
+
+        for nome, campos in _DOSSIE:
+            if nome == "RISCO" and not l.get("situacao_alerta"):
+                continue
+            dados = [[_c.rotulo(c), Paragraph(v(c), corpo)]
+                     for c in campos if c in pedidos and v(c)]
+            if not dados:
+                continue
+            hist.append(Paragraph(nome, sec))
+            t = Table(dados, colWidths=[42*mm, 132*mm])
+            t.setStyle(TableStyle([
+                ("FONT", (0, 0), (0, -1), "Helvetica-Bold", 8),
+                ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#555555")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+                ("LINEBELOW", (0, 0), (-1, -2), 0.25, colors.HexColor("#E5E5E5")),
+            ]))
+            hist.append(t)
+
+        # KeepTogether impede o rodapé de cair sozinho numa página órfã
+        hist.append(KeepTogether([
+            Spacer(1, 7),
+            Paragraph(f"Origem dos contatos: {v('fonte_contatos') or '—'} · "
+                      f"Base {v('base_competencia') or '—'} · "
+                      f"Extraído em {v('extraido_em') or '—'}", pe)]))
+        if n < len(linhas) - 1:
+            hist.append(PageBreak())
+    doc.build(hist)
+    return caminho
+
+
+def escrever(linhas, destino, formatos=("csv",), blocos=None):
+    """Gera os formatos pedidos a partir do mesmo lote. Devolve {formato: caminho}."""
+    destino = Path(destino)
+    feitos = {}
+    for f in formatos:
+        alvo = destino.with_suffix("." + f)
+        if f == "csv":
+            cols, dados = _preparar(linhas, blocos, "csv")
+            alvo.parent.mkdir(parents=True, exist_ok=True)
+            with open(alvo, "w", newline="", encoding="utf-8-sig") as fh:
+                w = csv.DictWriter(fh, fieldnames=cols, delimiter=";",
+                                   extrasaction="ignore", quoting=csv.QUOTE_ALL)
+                fh.write(";".join(f'"{_c.rotulo(c)}"' for c in cols) + "\r\n")
+                w.writerows(dados)
+        elif f == "xlsx":
+            escrever_xlsx(linhas, alvo, blocos)
+        elif f == "pdf":
+            escrever_pdf(linhas, alvo, blocos)
+        else:
+            raise ValueError(f"formato desconhecido: {f}")
+        feitos[f] = alvo
+    return feitos
