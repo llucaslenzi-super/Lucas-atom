@@ -23,6 +23,21 @@ API = f"https://huggingface.co/api/datasets/{REPO}"
 
 # Tabelas em ordem de importância: as primeiras bastam pro filtro funcionar.
 ESSENCIAIS = ("estabelecimentos", "empresas", "cnaes", "municipios")
+
+# O índice responde UMA pergunta: quais CNPJs existem em tal estado, cidade e
+# CNAE. Todo o resto do lead vem da API do EmpresAqui, então carregar as 30
+# colunas é guardar em duplicata.
+#
+# Medido: as 8 colunas abaixo, só de empresas ATIVAS, dão 1,09 GB.
+# A base inteira com tudo dá 16,9 GB. Fator de 15.
+COLUNAS = {
+    "estabelecimentos": ["cnpj_basico", "cnpj_ordem", "cnpj_dv", "uf",
+                         "municipio", "cnae_principal", "situacao_cadastral",
+                         "matriz_filial"],
+    "empresas": ["cnpj_basico", "razao_social", "porte"],
+}
+# 02 = ATIVA. Empresa baixada ou inapta não é lead.
+SO_ATIVAS = "situacao_cadastral = '02'"
 COMPLEMENTARES = ("socios", "simples", "naturezas_juridicas",
                   "qualificacoes_socios", "motivos_situacoes", "paises")
 
@@ -93,6 +108,106 @@ def _colunas(con, caminho: str) -> list[str]:
     return [d[0] for d in cur.description]
 
 
+def montar(db: Path | None = None, bruto: Path | None = None,
+           apagar_parquet=True) -> dict:
+    """
+    Baixa, carrega e apaga UM arquivo por vez.
+
+    Baixar os 4,2 GB de Parquet de uma vez só e depois carregar leva o pico de
+    disco a ~8,3 GB. Num disco de 10 GB, com o Ubuntu ocupando 3, não sobra
+    espaço para o DuckDB derramar e a carga morre no meio.
+
+    Arquivo por arquivo, o pico de Parquet cai para o maior arquivo isolado —
+    uns 320 MB — e a instalação cabe folgada.
+    """
+    db = Path(db or config.DB)
+    bruto = Path(bruto or config.BRUTO)
+    bruto.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(db))
+    resumo = {}
+
+    for grupo in ESSENCIAIS:
+        arquivos = [a for a in listar_arquivos() if a.split("/")[0] == grupo]
+        if not arquivos:
+            continue
+        tabela = _nome_tabela(grupo)
+        primeiro = True
+        for i, nome in enumerate(arquivos, 1):
+            local = bruto / nome.replace("/", "__")
+            if not local.exists():
+                print(f"  [{grupo} {i}/{len(arquivos)}] baixando…", end="", flush=True)
+                _baixar_um(nome, local)
+                print(f" {local.stat().st_size/1e6:.0f} MB", end="", flush=True)
+            cols = _colunas(con, str(local))
+            rotulo = {c: ALIAS.get(c, c) for c in cols}
+            queridas = COLUNAS.get(grupo)
+            if queridas:
+                cols = [c for c in cols if rotulo[c] in queridas]
+            projecao = ", ".join(
+                f'"{c}" AS {rotulo[c]}' if rotulo[c] != c else f'"{c}"' for c in cols)
+            onde = f" WHERE {SO_ATIVAS}" if grupo == "estabelecimentos" else ""
+            verbo = "CREATE OR REPLACE TABLE" if primeiro else "INSERT INTO"
+            alvo = f"{tabela} AS" if primeiro else tabela
+            con.execute(f"{verbo} {alvo} SELECT {projecao} "
+                        f"FROM read_parquet('{local}'){onde}")
+            primeiro = False
+            if apagar_parquet:
+                local.unlink(missing_ok=True)      # libera antes do próximo
+            print(" ok", flush=True)
+
+        if tabela == "empresas":
+            # só as que têm estabelecimento ativo
+            con.execute("DELETE FROM empresas WHERE cnpj_basico NOT IN "
+                        "(SELECT cnpj_basico FROM estabelecimentos)")
+        n = con.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()[0]
+        resumo[tabela] = n
+        print(f"  {tabela}: {n:,} linhas".replace(",", "."), flush=True)
+
+    _indices(con)
+    _escrever_base_json(db, resumo)
+    con.close()
+    return resumo
+
+
+def _nome_tabela(grupo: str) -> str:
+    return {"motivos_situacoes": "motivos", "qualificacoes_socios": "qualificacoes",
+            "naturezas_juridicas": "naturezas"}.get(grupo, grupo)
+
+
+def _baixar_um(nome: str, local: Path) -> None:
+    tmp = local.with_suffix(".parcial")
+    req = urllib.request.Request(f"{BASE}/{nome}", headers={"User-Agent": "misner"})
+    with urllib.request.urlopen(req, timeout=600) as resp, open(tmp, "wb") as f:
+        while chunk := resp.read(1 << 20):
+            f.write(chunk)
+    tmp.rename(local)
+
+
+def _indices(con) -> None:
+    for tabela, coluna in (("estabelecimentos", "uf"),
+                           ("estabelecimentos", "cnae_principal"),
+                           ("estabelecimentos", "cnpj_basico"),
+                           ("empresas", "cnpj_basico")):
+        try:
+            con.execute(f"CREATE INDEX IF NOT EXISTS ix_{tabela}_{coluna} "
+                        f"ON {tabela}({coluna})")
+        except Exception as e:
+            print(f"  (índice {tabela}.{coluna} não criado: {e})")
+
+
+def _escrever_base_json(db: Path, resumo: dict) -> None:
+    import json as _json
+    from datetime import datetime, timezone
+    comp = config.FONTE_ESPELHO_HF.rsplit("-", 2)[-2:]
+    (config.DADOS / "base.json").write_text(_json.dumps({
+        "arquivo": Path(db).name,
+        "competencia": "-".join(comp),
+        "estabelecimentos": resumo.get("estabelecimentos", 0),
+        "tabelas": resumo,
+        "carregado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def carregar(db: Path | None = None, bruto: Path | None = None) -> dict:
     """Cria as tabelas no DuckDB a partir dos Parquet baixados."""
     db = db or config.DB
@@ -106,16 +221,23 @@ def carregar(db: Path | None = None, bruto: Path | None = None) -> dict:
             continue
         padrao = str(bruto / f"{grupo}__*.parquet")
         cols = _colunas(con, padrao)
+        rotulo = {c: (ALIAS.get(c, c)) for c in cols}
+        queridas = COLUNAS.get(grupo)
+        if queridas:
+            cols = [c for c in cols if rotulo[c] in queridas]
         projecao = ", ".join(
-            f'"{c}" AS {ALIAS[c]}' if c in ALIAS and ALIAS[c] != c else f'"{c}"'
-            for c in cols
+            f'"{c}" AS {rotulo[c]}' if rotulo[c] != c else f'"{c}"' for c in cols
         )
+        onde = f" WHERE {SO_ATIVAS}" if grupo == "estabelecimentos" else ""
         tabela = {"motivos_situacoes": "motivos",
                   "qualificacoes_socios": "qualificacoes",
                   "naturezas_juridicas": "naturezas"}.get(grupo, grupo)
         print(f"  carregando {tabela} ({len(arquivos)} arquivo(s)) ...", end="", flush=True)
         con.execute(f"CREATE OR REPLACE TABLE {tabela} AS "
-                    f"SELECT {projecao} FROM read_parquet('{padrao}')")
+                    f"SELECT {projecao} FROM read_parquet('{padrao}'){onde}")
+        if tabela == "empresas":
+            con.execute("DELETE FROM empresas WHERE cnpj_basico NOT IN "
+                        "(SELECT cnpj_basico FROM estabelecimentos)")
         n = con.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()[0]
         resumo[tabela] = n
         print(f" {n:,} linhas".replace(",", "."))

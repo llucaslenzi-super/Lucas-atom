@@ -69,6 +69,17 @@ def cmd_baixar(a):
     _ok(f"{len(arquivos)} arquivo(s) em {config.BRUTO}")
 
 
+def cmd_montar(a):
+    """Baixa, carrega e apaga um arquivo por vez — cabe em disco pequeno."""
+    print("Montando o índice (baixa, carrega e apaga um arquivo por vez):")
+    resumo = mod_carregar.montar(apagar_parquet=not a.manter_parquet)
+    _ok(f"{len(resumo)} tabela(s) · " +
+        " · ".join(f"{k} {_n(v)}" for k, v in resumo.items()))
+    import os
+    tam = os.path.getsize(config.DB) / 1e9
+    print(f"      índice: {tam:.2f} GB")
+
+
 def cmd_carregar(a):
     print("Carregando no DuckDB:")
     resumo = mod_carregar.carregar()
@@ -209,7 +220,11 @@ def main(argv=None):
     s.add_argument("--completo", action="store_true", help="inclui sócios e Simples")
     s.set_defaults(fn=cmd_baixar)
 
-    s = sub.add_parser("carregar", help="carrega os Parquet no DuckDB")
+    s = sub.add_parser("montar", help="baixa+carrega+apaga por arquivo (disco pequeno)")
+    s.add_argument("--manter-parquet", action="store_true", dest="manter_parquet")
+    s.set_defaults(fn=cmd_montar)
+
+    s = sub.add_parser("carregar", help="carrega os Parquet já baixados")
     s.set_defaults(fn=cmd_carregar)
 
     s = sub.add_parser("conferir", help="confere a base carregada")
