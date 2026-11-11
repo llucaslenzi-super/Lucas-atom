@@ -13,10 +13,28 @@ import duckdb
 
 from . import config
 
+# Teto por pesquisa, definido pelo cliente. Erro explícito em vez de corte
+# silencioso: truncar sem avisar devolveria lista errada parecendo certa.
+MAX_CNAES = 2
+
+
+class CnaesDemais(ValueError):
+    pass
+
+
 SITUACAO_COD = {"ativa": "02", "nula": "01", "suspensa": "03",
                 "inapta": "04", "baixada": "08"}
 PORTE_COD = {"mei": "01", "micro": "01", "pequeno": "03",
              "medio": "05", "grande": "05", "demais": "05"}
+
+
+def _conectar(db=None):
+    """Base em somente-leitura, com o registro de entregues anexado como `ent`."""
+    con = duckdb.connect(str(db or config.DB), read_only=True)
+    from . import entregues as _e
+    if _e.ARQUIVO.exists():
+        con.execute(f"ATTACH '{_e.ARQUIVO}' AS ent (READ_ONLY)")
+    return con
 
 
 def _lista(v):
@@ -28,8 +46,18 @@ def _lista(v):
 
 
 def _onde(uf, cnae, situacao, porte, municipio, capital_min,
-          abertura_de, abertura_ate, com_contato, apenas_matriz=False):
+          abertura_de, abertura_ate, com_contato, apenas_matriz=False,
+          excluir_entregues=True):
     cond, par = [], []
+
+    # Empresa já entregue nunca volta. A exclusão acontece AQUI, no filtro, e
+    # não depois: gastar requisição do EmpresAqui numa empresa que seria
+    # descartada desperdiça tempo e cota. Exclui por cnpj_basico — entregue a
+    # matriz, a filial não volta disfarçada de lead novo.
+    if excluir_entregues:
+        from . import entregues as _e
+        if _e.ARQUIVO.exists():
+            cond.append("e.cnpj_basico NOT IN (SELECT cnpj_basico FROM ent.entregues)")
 
     # Sem isso, "as 10 maiores de SC" devolve 9 agências do mesmo banco.
     # Uma agência não é um lead; a empresa é.
@@ -42,6 +70,10 @@ def _onde(uf, cnae, situacao, porte, municipio, capital_min,
 
     # CNAE por PREFIXO: "13" pega a divisão inteira, "1322300" pega o código exato.
     if cnae := _lista(cnae):
+        if len(cnae) > MAX_CNAES:
+            raise CnaesDemais(
+                f"{len(cnae)} CNAEs pedidos; o máximo por pesquisa é {MAX_CNAES}. "
+                f"Rode uma pesquisa para cada grupo.")
         ors = []
         for c in cnae:
             c = "".join(ch for ch in c if ch.isdigit())
@@ -134,8 +166,9 @@ def contar(db=None, **f) -> int:
     onde, par = _onde(f.get("uf"), f.get("cnae"), f.get("situacao", "ativa"),
                       f.get("porte"), f.get("municipio"), f.get("capital_min"),
                       f.get("abertura_de"), f.get("abertura_ate"),
-                      f.get("com_contato"), f.get("apenas_matriz", False))
-    con = duckdb.connect(str(db or config.DB), read_only=True)
+                      f.get("com_contato"), f.get("apenas_matriz", False),
+                      f.get("excluir_entregues", True))
+    con = _conectar(db)
     sql = ("SELECT COUNT(*) FROM estabelecimentos e "
            "LEFT JOIN empresas em ON em.cnpj_basico = e.cnpj_basico "
            "LEFT JOIN municipios m ON m.codigo = e.municipio" + onde)
@@ -146,14 +179,15 @@ def contar(db=None, **f) -> int:
 
 def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,
            municipio=None, capital_min=None, abertura_de=None, abertura_ate=None,
-           com_contato=False, apenas_matriz=False,
+           com_contato=False, apenas_matriz=False, excluir_entregues=True,
            ordenar="capital", limite=None) -> list[dict]:
     onde, par = _onde(uf, cnae, situacao, porte, municipio, capital_min,
-                      abertura_de, abertura_ate, com_contato, apenas_matriz)
+                      abertura_de, abertura_ate, com_contato, apenas_matriz,
+                      excluir_entregues)
     sql = _SELECT + onde + f" ORDER BY {ORDENS.get(ordenar, ORDENS['capital'])}"
     if limite:
         sql += f" LIMIT {int(limite)}"
-    con = duckdb.connect(str(db or config.DB), read_only=True)
+    con = _conectar(db)
     cur = con.execute(sql, par)
     nomes = [d[0] for d in cur.description]
     linhas = [dict(zip(nomes, r)) for r in cur.fetchall()]
@@ -163,7 +197,7 @@ def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,
 
 def cnaes_disponiveis(db=None, prefixo=None, busca=None) -> list[tuple]:
     """Ajuda a descobrir o código certo: `cnaes(busca='tecelagem')`."""
-    con = duckdb.connect(str(db or config.DB), read_only=True)
+    con = _conectar(db)
     cond, par = [], []
     if prefixo:
         cond.append("codigo LIKE ?")
