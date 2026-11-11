@@ -10,7 +10,7 @@ DADOS = Path(os.environ.get("CNPJ_DADOS", RAIZ / "dados"))
 BRUTO = DADOS / "bruto"          # zips/parquet baixados
 DB = DADOS / "cnpj.duckdb"       # base consultável
 CACHE = DADOS / "empresaqui.sqlite"
-SAIDA = RAIZ / "saida"
+SAIDA = Path(os.environ.get("CNPJ_SAIDA", RAIZ / "saida"))
 
 # Token do EmpresAqui — SEMPRE por variável de ambiente, nunca no código.
 #   export EMPRESAQUI_TOKEN="..."
@@ -35,5 +35,12 @@ SITUACAO = {"1": "NULA", "2": "ATIVA", "3": "SUSPENSA", "4": "INAPTA", "8": "BAI
 PORTE_API = {"0": "NAO INFORMADO", "1": "MICROEMPRESA",
              "3": "PEQUENO PORTE", "5": "MEDIO/GRANDE PORTE"}
 
-for d in (DADOS, BRUTO, SAIDA):
-    d.mkdir(parents=True, exist_ok=True)
+# Criar na importação é conveniente no uso local, mas sob systemd o
+# repositório é montado somente-leitura (ProtectSystem=strict) e um mkdir
+# ali derruba o processo antes de ele começar. Em serviço, quem cria os
+# diretórios é o instalador; aqui a falha é ignorada de propósito.
+for _d in (DADOS, BRUTO, SAIDA):
+    try:
+        _d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass

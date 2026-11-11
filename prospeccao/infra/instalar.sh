@@ -47,6 +47,7 @@ EMPRESAQUI_TOKEN=$(meta empresaqui-token)
 APIFY_TOKEN=$(meta apify-token)
 API_TOKEN=$(meta api-token)
 CNPJ_DADOS=$RAIZ/dados
+CNPJ_SAIDA=$RAIZ/saida
 EOF
 chmod 600 /etc/$SLUG.env
 # Dono root de propósito: o systemd lê o arquivo ANTES de descer para User=,
