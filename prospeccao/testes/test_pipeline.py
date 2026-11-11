@@ -264,3 +264,66 @@ class _ConFalsa:
     def fetchall(self): return []
     def fetchone(self): return (0,)
     def close(self): pass
+
+
+# ───────────────────────────── carga: filtro na entrada
+
+def test_carga_barra_ativos_e_orfas(tmp_path, monkeypatch):
+    """
+    Dois filtros que falham CALADOS se quebrarem:
+
+    1. só situação '02' entra (empresa baixada não é lead);
+    2. empresa sem nenhum estabelecimento ativo não entra.
+
+    O segundo já quebrou: o EXISTS sem qualificar a tabela de fora virava
+    `x.cnpj_basico = x.cnpj_basico`, sempre verdadeiro, e TODAS as linhas
+    passavam. Nenhuma exceção, nenhum aviso — só uma base maior do que devia.
+    """
+    import duckdb
+    from cnpj import carregar
+
+    bruto = tmp_path / "bruto"
+    bruto.mkdir()
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+
+    c = duckdb.connect()
+    c.execute(f"""COPY (SELECT * FROM (VALUES
+      ('11111111','0001','11','SC','8317','1399400','02','1'),
+      ('22222222','0001','22','SP','7107','4751201','02','1'),
+      ('33333333','0001','33','RJ','6001','1234567','08','1'))
+      t(cnpj_basico,cnpj_ordem,cnpj_dv,uf,municipio,cnae_fiscal_principal,
+        situacao_cadastral,identificador_matriz_filial))
+      TO '{bruto / "estabelecimentos__a.parquet"}' (FORMAT PARQUET)""")
+    c.execute(f"""COPY (SELECT * FROM (VALUES
+      ('11111111','ALFA LTDA','03'),
+      ('22222222','BETA SA','05'),
+      ('33333333','MORTA ME','01'))
+      t(cnpj_basico,razao_social,porte_empresa))
+      TO '{bruto / "empresas__a.parquet"}' (FORMAT PARQUET)""")
+    c.close()
+
+    r = carregar.carregar(db=tmp_path / "t.duckdb", bruto=bruto)
+    assert r["estabelecimentos"] == 2, "estabelecimento baixado entrou no índice"
+    assert r["empresas"] == 2, "empresa sem estabelecimento ativo entrou"
+
+    con = duckdb.connect(str(tmp_path / "t.duckdb"), read_only=True)
+    assert con.execute("SELECT COUNT(*) FROM empresas "
+                       "WHERE cnpj_basico='33333333'").fetchone()[0] == 0
+    con.close()
+
+
+def test_ajustar_poe_teto_de_memoria():
+    """
+    Sem teto, o DuckDB assume 80% da RAM física e o kernel mata o processo
+    numa máquina de 1 GB — foi exatamente como a carga morreu na VM.
+    """
+    import duckdb
+    from cnpj import carregar
+
+    con = duckdb.connect()
+    lim = carregar.ajustar(con)
+    assert lim["memory_limit_mb"] >= 256
+    assert lim["memory_limit_mb"] <= lim["ram_mb"] * 0.5
+    efetivo = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
+    assert efetivo and efetivo != "0 bytes", f"teto não aplicado: {efetivo!r}"
+    con.close()

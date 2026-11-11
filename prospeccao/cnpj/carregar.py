@@ -10,6 +10,7 @@ não da carga: a base cabe, e assim nenhum estado ou setor fica de fora depois.
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from pathlib import Path
 
@@ -102,6 +103,51 @@ ALIAS = {
 }
 
 
+def _ram_mb() -> int:
+    """RAM total da máquina, em MB. Sem /proc, assume 2 GB."""
+    try:
+        for linha in Path("/proc/meminfo").read_text().splitlines():
+            if linha.startswith("MemTotal:"):
+                return int(linha.split()[1]) // 1024
+    except OSError:
+        pass
+    return 2048
+
+
+def ajustar(con, leitura=False) -> dict:
+    """
+    Põe teto de memória no DuckDB e dá a ele um lugar para derramar.
+
+    Sem isso o DuckDB assume que pode usar 80% da RAM FÍSICA. Numa máquina de
+    1 GB, onde o Ubuntu já ocupa uns 330 MB, ele pede 800 MB, o kernel não
+    tem, e o OOM killer mata o processo no meio da carga — medido na VM:
+    `estabelecimentos` passava, `empresas` morria com signal=KILL.
+
+    Com teto e temp_directory ele derrama em disco e fica lento, em vez de
+    morrer. Disco é o que sobra; RAM não.
+    """
+    ram = _ram_mb()
+    limite = max(256, int(ram * 0.45))
+    fios = 1 if ram < 2048 else min(4, os.cpu_count() or 1)
+    tmp = Path(os.environ.get("DUCKDB_TMP", config.DADOS / "tmp"))
+    try:
+        tmp.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        tmp = None
+    con.execute(f"SET memory_limit='{limite}MB'")
+    con.execute(f"SET threads={fios}")
+    if tmp is not None:
+        con.execute(f"SET temp_directory='{tmp}'")
+    if not leitura:
+        # Carga em lote não precisa manter a ordem das linhas, e manter custa
+        # memória proporcional ao tamanho do lote.
+        try:
+            con.execute("SET preserve_insertion_order=false")
+        except Exception:
+            pass
+    return {"ram_mb": ram, "memory_limit_mb": limite, "threads": fios}
+
+
 def _colunas(con, caminho: str) -> list[str]:
     """Nomes das colunas do Parquet, lidos do cursor (independe da versão do DuckDB)."""
     cur = con.execute(f"SELECT * FROM read_parquet('{caminho}') LIMIT 0")
@@ -124,6 +170,9 @@ def montar(db: Path | None = None, bruto: Path | None = None,
     bruto = Path(bruto or config.BRUTO)
     bruto.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db))
+    lim = ajustar(con)
+    print(f"  RAM {lim['ram_mb']} MB · teto DuckDB {lim['memory_limit_mb']} MB · "
+          f"{lim['threads']} thread(s)", flush=True)
     resumo = {}
 
     for grupo in ESSENCIAIS:
@@ -145,20 +194,29 @@ def montar(db: Path | None = None, bruto: Path | None = None,
                 cols = [c for c in cols if rotulo[c] in queridas]
             projecao = ", ".join(
                 f'"{c}" AS {rotulo[c]}' if rotulo[c] != c else f'"{c}"' for c in cols)
-            onde = f" WHERE {SO_ATIVAS}" if grupo == "estabelecimentos" else ""
+            onde = ""
+            if grupo == "estabelecimentos":
+                onde = f" WHERE {SO_ATIVAS}"
+            elif grupo == "empresas":
+                # Filtra na entrada, não depois. O DELETE ... NOT IN montava
+                # um anti-join contra 28 mi de linhas depois de já ter
+                # materializado as 63 mi — duas vezes o pico de memória, e
+                # era onde a carga morria numa máquina de 1 GB.
+                # `fonte.` é obrigatório: sem qualificar, o cnpj_basico de
+                # dentro do EXISTS resolve para a própria estabelecimentos,
+                # a condição vira x = x, sempre verdadeira, e o filtro passa
+                # TODAS as linhas — silenciosamente, sem erro.
+                onde = (" WHERE EXISTS (SELECT 1 FROM estabelecimentos x "
+                        " WHERE x.cnpj_basico = fonte.cnpj_basico)")
             verbo = "CREATE OR REPLACE TABLE" if primeiro else "INSERT INTO"
             alvo = f"{tabela} AS" if primeiro else tabela
             con.execute(f"{verbo} {alvo} SELECT {projecao} "
-                        f"FROM read_parquet('{local}'){onde}")
+                        f"FROM read_parquet('{local}') fonte{onde}")
             primeiro = False
             if apagar_parquet:
                 local.unlink(missing_ok=True)      # libera antes do próximo
             print(" ok", flush=True)
 
-        if tabela == "empresas":
-            # só as que têm estabelecimento ativo
-            con.execute("DELETE FROM empresas WHERE cnpj_basico NOT IN "
-                        "(SELECT cnpj_basico FROM estabelecimentos)")
         n = con.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()[0]
         resumo[tabela] = n
         print(f"  {tabela}: {n:,} linhas".replace(",", "."), flush=True)
@@ -213,6 +271,7 @@ def carregar(db: Path | None = None, bruto: Path | None = None) -> dict:
     db = db or config.DB
     bruto = bruto or config.BRUTO
     con = duckdb.connect(str(db))
+    ajustar(con)
     resumo = {}
 
     for grupo in ESSENCIAIS + COMPLEMENTARES:
@@ -228,16 +287,18 @@ def carregar(db: Path | None = None, bruto: Path | None = None) -> dict:
         projecao = ", ".join(
             f'"{c}" AS {rotulo[c]}' if rotulo[c] != c else f'"{c}"' for c in cols
         )
-        onde = f" WHERE {SO_ATIVAS}" if grupo == "estabelecimentos" else ""
+        onde = ""
+        if grupo == "estabelecimentos":
+            onde = f" WHERE {SO_ATIVAS}"
+        elif grupo == "empresas":
+            onde = (" WHERE EXISTS (SELECT 1 FROM estabelecimentos x "
+                    " WHERE x.cnpj_basico = fonte.cnpj_basico)")
         tabela = {"motivos_situacoes": "motivos",
                   "qualificacoes_socios": "qualificacoes",
                   "naturezas_juridicas": "naturezas"}.get(grupo, grupo)
         print(f"  carregando {tabela} ({len(arquivos)} arquivo(s)) ...", end="", flush=True)
         con.execute(f"CREATE OR REPLACE TABLE {tabela} AS "
-                    f"SELECT {projecao} FROM read_parquet('{padrao}'){onde}")
-        if tabela == "empresas":
-            con.execute("DELETE FROM empresas WHERE cnpj_basico NOT IN "
-                        "(SELECT cnpj_basico FROM estabelecimentos)")
+                    f"SELECT {projecao} FROM read_parquet('{padrao}') fonte{onde}")
         n = con.execute(f"SELECT COUNT(*) FROM {tabela}").fetchone()[0]
         resumo[tabela] = n
         print(f" {n:,} linhas".replace(",", "."))
@@ -280,6 +341,7 @@ def verificar(db: Path | None = None) -> tuple[bool, list[str]]:
     deslocada, arquivo com WAL pendente. Nenhum deles levanta exceção sozinho.
     """
     con = duckdb.connect(str(db or config.DB), read_only=True)
+    ajustar(con, leitura=True)
     falhas = []
     try:
         tabelas = {t for (t,) in con.execute("SHOW TABLES").fetchall()}

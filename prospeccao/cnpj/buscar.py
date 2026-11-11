@@ -31,6 +31,8 @@ PORTE_COD = {"mei": "01", "micro": "01", "pequeno": "03",
 def _conectar(db=None):
     """Base em somente-leitura, com o registro de entregues anexado como `ent`."""
     con = duckdb.connect(str(db or config.DB), read_only=True)
+    from .carregar import ajustar
+    ajustar(con, leitura=True)       # teto de memória: a VM tem 1 GB
     from . import entregues as _e
     if _e.ARQUIVO.exists():
         # IF NOT EXISTS é obrigatório: conexões para o mesmo arquivo compartilham
@@ -60,7 +62,11 @@ def _onde(uf, cnae, situacao, porte, municipio, capital_min,
     if excluir_entregues:
         from . import entregues as _e
         if _e.ARQUIVO.exists():
-            cond.append("e.cnpj_basico NOT IN (SELECT cnpj_basico FROM ent.entregues)")
+            cond.append("NOT EXISTS (SELECT 1 FROM ent.entregues t "
+                        " WHERE t.cnpj_basico = e.cnpj_basico)")
+            # NOT EXISTS, não NOT IN: com NOT IN, um único cnpj_basico
+            # nulo no registro faz a condição inteira devolver zero
+            # linhas — toda pesquisa voltaria vazia, sem erro nenhum.
 
     # Sem isso, "as 10 maiores de SC" devolve 9 agências do mesmo banco.
     # Uma agência não é um lead; a empresa é.

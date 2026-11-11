@@ -81,8 +81,10 @@ Type=oneshot
 RemainAfterExit=yes
 TimeoutStartSec=7200
 $(_comum)
-ExecStart=$RAIZ/venv/bin/python -m cnpj baixar
-ExecStart=$RAIZ/venv/bin/python -m cnpj carregar
+# montar, nao baixar+carregar: baixa, carrega e apaga UM arquivo por vez.
+# Carregar os 10 arquivos de uma vez levou o pico de memoria alem do 1 GB da
+# maquina e o kernel matou a carga (oom-kill, medido na VM em 11/11).
+ExecStart=$RAIZ/venv/bin/python -m cnpj montar
 ExecStart=$RAIZ/venv/bin/python -m cnpj conferir
 [Install]
 WantedBy=multi-user.target
