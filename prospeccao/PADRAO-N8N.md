@@ -1,66 +1,76 @@
-# Padrão de nomenclatura no n8n — Agente de Prospecção Misner
+# Agente de Prospecção Misner — organização no n8n
 
-Padrão da casa: cada produto ganha um **slug curto** e usa ele em tudo. Slug
-novo = prefixos novos = **zero colisão** com o que já existe na instância.
+## A instância
 
-## Slug deste projeto
+```
+https://atomtecnologia.app.n8n.cloud
+projeto: LUCAS LENZI <lucas@atomwork.com.br>   (pessoal)
+```
+
+**Tudo deste produto vive aqui.** A instância `soultextil.app.n8n.cloud` é
+outra coisa e não participa deste projeto.
+
+## Slug
 
 ```
 slug      misner
 display   Misner
+pasta     Misner        (criada, ao lado de "Agente Internacional" e
+                         "Vendas (Agente WhatsApp)")
 ```
 
-> O n8n já teve um workflow chamado `Missner · SDR WhatsApp (reativo)` (com dois
-> **s**), depois renomeado para `MKT ·`. Aqui está grafado **Misner**, como o nome
-> do projeto foi passado. Se o certo for `Missner`, trocar antes de criar o
-> primeiro workflow — depois de criado, o path do webhook não muda sem quebrar
-> integração.
+## O padrão, e o que já se pratica na Atom
 
-## A tabela
-
-| Item | Padrão | Neste projeto |
+| Item | Padrão | Neste produto |
 |---|---|---|
-| Workflow | `Produto · Função` | `Misner · Pedir Lista` · `Misner · Entregar Fatias` · `Misner · Atualizar Base` |
-| **Webhook (path)** | `produto-funcao` | `misner-pedido` · `misner-status` · `misner-entrega` |
-| Data Table | `produto_tabela` | `misner_pedidos` · `misner_fatias` · `misner_entregues` |
-| Credencial | `Produto · Serviço` | `Misner · API` · `Misner · EmpresAqui` · `Misner · Apify` |
-| Tag | nome do produto | `Misner` |
-| Folder | nome do produto | `Misner` |
+| Workflow | `Produto · Função` | `Misner · Pedir Lista` · `Misner · Entregar Fatias` |
+| **Webhook (path)** | `produto-funcao` | `misner-pedido` · `misner-status` |
+| Pasta | nome do produto | `Misner` |
+| Credencial | `Produto · Serviço` | `Misner · API` |
+| Tag | nome do produto | `Misner` (nasce com o 1º workflow) |
+
+Levantamento da Atom em 11/11/2026: 79 workflows, agrupados por prefixo —
+**J2P** (37), **Vendas** (23), sem prefixo (17), **TEMP** (2). Pastas em uso:
+Agente Internacional, Vendas (Agente WhatsApp). Nenhuma tag.
+
+O padrão de path mais próximo do documentado é o do Agente Internacional
+(`aginternacional-login`, `aginternacional-criar-cliente`). O J2P usa barra
+(`pagar/criar`, `auth/login`) e o Vendas é irregular (`app`, `material`).
+Misner segue o do Agente Internacional.
 
 ## O que de fato protege
 
-**O path do webhook é o único que pode colidir entre produtos.** Com
-`misner-pedido` e `vendas-login`, nunca batem. Nome de workflow, tabela e
-credencial duplicados são confusão humana; path duplicado é falha técnica.
+**O path do webhook é o único que colide de verdade entre produtos.** Nome de
+workflow e de pasta duplicados são confusão humana; path duplicado é falha
+técnica. Com `misner-pedido` nada bate com os 52 webhooks que já existem —
+verificado um a um.
 
 Regra: **sempre prefixar o path com o slug.**
 
-## Checklist para subir este produto
+## Isolamento
+
+Este produto **não reaproveita nada** do que já está na Atom. Nenhum workflow
+existente é chamado, alterado ou movido. Nenhuma credencial existente é
+reutilizada. O que o Misner precisa, o Misner cria com o próprio prefixo.
+
+## Checklist
 
 ```
-[ ] Folder "Misner" criada
-[ ] Tag "Misner" criada
-[ ] Credencial  Misner · API         (Bearer do serviço + cabeçalhos do Access)
+[x] Pasta "Misner" criada no projeto pessoal
+[ ] Credencial  Misner · API         Bearer do serviço
 [ ] Workflow    Misner · Pedir Lista       → webhook misner-pedido
 [ ] Workflow    Misner · Entregar Fatias   → schedule, sem webhook
-[ ] Workflow    Misner · Atualizar Base    → schedule mensal
-[ ] Tudo dentro da Folder e com a Tag
-[ ] Nenhum nome ou path sem o prefixo misner
+[ ] Tag "Misner" aplicada aos dois
 ```
 
-## O que NÃO tocar
+Os workflows entram **depois** de a VM responder — workflow apontando para
+serviço inexistente é sujeira na instância.
 
-A instância tem 108 workflows. Estes já rodam em produção e **não são deste
-produto**:
+## O que não tocar
 
 ```
-MKT ·      SDR WhatsApp · Motor de Cadência · Disparo Advogados (fila)
-           Guardião (corta-circuito) · Tracking Abertura · Descadastro
-           Enriquecimento Nome (Receita)        ← desativado, não reativar
-SaaS ·     Material · Serve Material · Salvar Roteiro · Status v2
-           Deletar Instância
-Soul ·     Pedido por Voz · Pedidos Lucas v3 · Estoque de Fios
-Agente de Crédito · Soul Têxtil
+J2P —      37 workflows   (auth, pagar, nf, asaas, cron)
+Vendas ·   23 workflows   (app, motor, lead set, material, instâncias)
+Agente Internacional ·  ·  Agente Processual WhatsApp
+Agente de Pedidos Soul v1/v2/v3   ·   TEMP —
 ```
-
-Seguindo o padrão, nenhum deles é tocado.

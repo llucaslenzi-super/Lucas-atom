@@ -231,3 +231,36 @@ def test_planilha_nao_tem_teto_de_cnae():
     import inspect
     fonte = inspect.getsource(exportar.ler_cnpjs)
     assert "cnae" not in fonte and "buscar" not in fonte
+
+
+# ─────────────────────────────── portão da base
+
+def test_verificar_e_portao_nao_relatorio():
+    """
+    Num timer às 3h da manhã ninguém lê `print`. Sem código de saída a
+    unidade passaria como sucesso com a base errada.
+    """
+    from cnpj.carregar import verificar
+    import inspect
+    fonte = inspect.getsource(verificar)
+    assert "-> tuple[bool, list[str]]" in inspect.signature(verificar).__str__() \
+        or "falhas" in fonte, "verificar precisa devolver o veredito"
+    # as checagens que pegam falha silenciosa
+    for sinal in ("carga parcial", "deslocadas", "casam com a tabela cnaes"):
+        assert sinal in fonte, f"falta a checagem: {sinal}"
+
+
+def test_conferir_sai_com_erro_quando_reprova(monkeypatch):
+    from cnpj import carregar
+    monkeypatch.setattr(carregar, "verificar", lambda db=None: (False, ["falha falsa"]))
+    monkeypatch.setattr(carregar.duckdb, "connect", lambda *a, **k: _ConFalsa())
+    with pytest.raises(SystemExit) as e:
+        carregar.conferir()
+    assert e.value.code == 1
+
+
+class _ConFalsa:
+    def execute(self, *a, **k): return self
+    def fetchall(self): return []
+    def fetchone(self): return (0,)
+    def close(self): pass

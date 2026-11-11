@@ -132,8 +132,69 @@ def carregar(db: Path | None = None, bruto: Path | None = None) -> dict:
         except Exception as e:
             print(f"  (índice {tabela}.{coluna} não criado: {e})")
 
+    # A API lê este arquivo para reportar a competência em /v1/saude e para
+    # carimbar base_competencia em cada lead. Sem ele a competência mente.
+    import json as _json
+    from datetime import datetime, timezone
+    comp = (config.FONTE_ESPELHO_HF.rsplit("-", 2)[-2:] or ["", ""])
+    (config.DADOS / "base.json").write_text(_json.dumps({
+        "arquivo": Path(db).name,
+        "competencia": "-".join(comp),
+        "estabelecimentos": resumo.get("estabelecimentos", 0),
+        "tabelas": resumo,
+        "carregado_em": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
     con.close()
     return resumo
+
+
+def verificar(db: Path | None = None) -> tuple[bool, list[str]]:
+    """
+    Portão, não relatório. Num timer às 3h da manhã ninguém lê `print`:
+    sem código de saída, a unidade passaria como sucesso com a base errada.
+
+    Cada checagem pega um modo de falha SILENCIOSO — carga parcial, coluna
+    deslocada, arquivo com WAL pendente. Nenhum deles levanta exceção sozinho.
+    """
+    con = duckdb.connect(str(db or config.DB), read_only=True)
+    falhas = []
+    try:
+        tabelas = {t for (t,) in con.execute("SHOW TABLES").fetchall()}
+        for obrigatoria in ("estabelecimentos", "empresas", "cnaes", "municipios"):
+            if obrigatoria not in tabelas:
+                falhas.append(f"tabela ausente: {obrigatoria}")
+        if falhas:
+            return False, falhas
+
+        n = con.execute("SELECT COUNT(*) FROM estabelecimentos").fetchone()[0]
+        if n < 50_000_000:
+            falhas.append(f"estabelecimentos com {n:,} linhas — carga parcial?")
+
+        ufs = con.execute("SELECT uf, COUNT(*) c FROM estabelecimentos "
+                          "GROUP BY uf ORDER BY c DESC LIMIT 3").fetchall()
+        if not ufs or ufs[0][0] != "SP":
+            falhas.append(f"SP não é a maior UF (veio {ufs[0][0] if ufs else '—'}) "
+                          "— colunas podem estar deslocadas")
+
+        # Não-nulo nos campos que o filtro usa.
+        for col in ("uf", "cnae_principal", "situacao_cadastral", "cnpj_basico"):
+            vazios = con.execute(
+                f"SELECT COUNT(*) FROM estabelecimentos WHERE {col} IS NULL "
+                f"OR TRIM({col})=''").fetchone()[0]
+            if vazios > n * 0.01:
+                falhas.append(f"{col} vazio em {vazios:,} linhas (>1%)")
+
+        # CNAE tem de casar com a tabela de domínio: pega truncamento e troca
+        # de coluna, que carregam sem erro nenhum.
+        casam = con.execute(
+            "SELECT COUNT(*) FROM estabelecimentos e JOIN cnaes c "
+            "ON c.codigo = e.cnae_principal").fetchone()[0]
+        if casam < n * 0.95:
+            falhas.append(f"só {casam:,} de {n:,} CNAEs casam com a tabela cnaes")
+    finally:
+        con.close()
+    return not falhas, falhas
 
 
 def conferir(db: Path | None = None) -> None:
@@ -159,3 +220,12 @@ def conferir(db: Path | None = None) -> None:
     for r in con.execute(f"SELECT {cols} FROM estabelecimentos WHERE uf='SC' LIMIT 3").fetchall():
         print("  ", r)
     con.close()
+
+    ok, falhas = verificar(db)
+    print("\n=== VERIFICAÇÃO ===")
+    for f in falhas:
+        print(f"  \033[31m✗\033[0m {f}")
+    print("  \033[32m✓\033[0m tudo certo" if ok else
+          f"  \033[31m{len(falhas)} falha(s) — a base NÃO deve entrar em uso\033[0m")
+    if not ok:
+        raise SystemExit(1)
