@@ -1,6 +1,11 @@
 dados/
 saida/
 *.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.parquet
 *.parcial
+*.duckdb
+*.lock
 __pycache__/
+.pytest_cache/

@@ -33,7 +33,10 @@ def _conectar(db=None):
     con = duckdb.connect(str(db or config.DB), read_only=True)
     from . import entregues as _e
     if _e.ARQUIVO.exists():
-        con.execute(f"ATTACH '{_e.ARQUIVO}' AS ent (READ_ONLY)")
+        # IF NOT EXISTS é obrigatório: conexões para o mesmo arquivo compartilham
+        # a instância dentro do processo, então o anexo sobrevive entre elas.
+        # Sem isso, a segunda requisição do serviço morre com "ent already exists".
+        con.execute(f"ATTACH IF NOT EXISTS '{_e.ARQUIVO}' AS ent (READ_ONLY)")
     return con
 
 
