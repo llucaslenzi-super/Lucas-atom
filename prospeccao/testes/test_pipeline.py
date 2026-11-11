@@ -436,3 +436,43 @@ def test_portao_pega_coluna_que_o_espelho_nao_trouxe(tmp_path, monkeypatch):
     ok, falhas = carregar.verificar(db)
     assert not ok
     assert any("razao_social" in f for f in falhas), falhas
+
+
+# ───────────────────── a ordem das colunas ditada pelo cliente
+
+# Escritos à mão, de propósito. Um teste que leia colunas.py para conferir
+# colunas.py não prova nada: ele passaria mesmo se a ordem fosse trocada.
+# Esta é a ordem que o cliente ditou, literalmente, e é contra ela que se
+# compara.
+DOZE_PRIMEIRAS = [
+    "CNPJ", "Razão Social", "Nome Fantasia", "Contatos", "E-mail",
+    "Instagram", "Site", "Cidade", "Estado", "Sócios", "CNAE", "Atividade",
+]
+
+
+def _leads_de_teste(n=3):
+    from cnpj import colunas as c
+    return [{col: (["a", "b"] if col in c.MULTIVALOR else f"v{i}")
+             for col in c.colunas_de(None)} for i in range(n)]
+
+
+def test_ordem_das_colunas_no_csv_e_no_xlsx(tmp_path):
+    """
+    O defeito que isto pega já esteve no código: exportar.py tinha uma segunda
+    lista de ordem, de duas versões atrás, pedindo nomes que achatar() não
+    produz mais. Nada falhava — as colunas caíam no caminho de "extras",
+    ordenado por alfabeto, e a planilha saía com a ordem errada em silêncio.
+    """
+    from openpyxl import load_workbook
+
+    feitos = exportar.escrever(_leads_de_teste(), tmp_path / "leads",
+                               ("csv", "xlsx"))
+
+    cab = feitos["csv"].read_text(encoding="utf-8-sig").splitlines()[0]
+    rotulos = [x.strip('"') for x in cab.split(";")]
+    assert rotulos[:12] == DOZE_PRIMEIRAS, rotulos[:12]
+
+    # No XLSX tem de ser a mesma ordem: é a mesma planilha, outro formato.
+    ws = load_workbook(feitos["xlsx"], read_only=True).active
+    cabecalho = [c.value for c in next(ws.rows)]
+    assert cabecalho[:12] == DOZE_PRIMEIRAS, cabecalho[:12]

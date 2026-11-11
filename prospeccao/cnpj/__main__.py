@@ -188,19 +188,25 @@ def cmd_enriquecer(a):
                 _erro(f"apify falhou neste lote: {e}")
 
         linhas += do_bloco
-        exportar.escrever_csv(linhas, destino)      # parcial a cada lote
+        # escrever(), não escrever_csv(): é o mesmo caminho que o worker usa,
+        # com os rótulos e a ordem de colunas.py. O escrever_csv cru deixava
+        # a planilha final diferente da que o serviço entrega.
+        exportar.escrever(linhas, destino, a.formatos)   # parcial a cada lote
         feitos = min(inicio + tamanho, len(cnpjs))
         print(f"\r  {feitos}/{len(cnpjs)}  ok={len(linhas)} erros={erros} "
               f"{time.time()-t0:.0f}s", end="", flush=True)
     print()
 
-    destino = exportar.escrever_csv(linhas, destino)
-    _ok(f"{_n(len(linhas))} leads → {destino}")
+    feitos = exportar.escrever(linhas, destino, a.formatos)
+    for f, caminho in feitos.items():
+        _ok(f"{_n(len(linhas))} leads → {caminho}")
+    # As chaves são as de colunas.py. Antes aqui estavam enr_whatsapp_principal,
+    # enr_email_principal, enr_instagram_principal e socio_admin, que achatar()
+    # não cria: o resumo imprimia zero em tudo, sempre.
     com = lambda k: sum(1 for l in linhas if l.get(k))
-    print(f"      whatsapp {com('enr_whatsapp_principal')} · "
-          f"email {com('enr_email_principal')} · "
-          f"instagram {com('enr_instagram_principal')} · "
-          f"decisor {com('socio_admin')}")
+    print(f"      contatos {com('contatos')} · email {com('email')} · "
+          f"instagram {com('instagram')} · site {com('site')} · "
+          f"socios {com('socios')}")
 
 
 # ──────────────────────────────────────────────── cli
@@ -255,6 +261,9 @@ def main(argv=None):
     s.add_argument("--limite", type=int)
     s.add_argument("--lote", type=int, default=10,
                    help="grava parcial a cada N (padrão 10)")
+    s.add_argument("--formatos", default="csv",
+                   type=lambda v: tuple(x.strip() for x in v.split(",") if x.strip()),
+                   help="csv, xlsx, pdf — separados por vírgula (padrão csv)")
     s.add_argument("--apify", action="store_true",
                    help="roda Maps + Instagram em 100%% do lote")
     s.add_argument("--linkedin", action="store_true",

@@ -48,6 +48,10 @@ SABOTAGENS = [
     ("portão não confere as colunas da base", "carregar",
      "            faltando = [c for c in queridas if c not in tem]",
      "            faltando = []"),
+    # A ordem que o cliente ditou. Trocar as duas primeiras tem de reprovar.
+    ("ordem das colunas trocada", "colunas",
+     '"cnpj", "razao_social", "nome_fantasia", "contatos", "email",',
+     '"razao_social", "cnpj", "nome_fantasia", "contatos", "email",'),
 ]
 
 

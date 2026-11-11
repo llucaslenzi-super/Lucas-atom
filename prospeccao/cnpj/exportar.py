@@ -8,29 +8,20 @@ import re
 import zipfile
 from pathlib import Path
 
+from . import colunas as _c
 from .empresaqui import normalizar, so_digitos
 
-# Ordem das colunas no CSV final: CNPJ primeiro, razão social depois.
-COLUNAS_SAIDA = [
-    "cnpj", "razao_social", "nome_fantasia", "situacao", "matriz_filial",
-    "uf", "municipio", "bairro", "logradouro", "cep",
-    "cnae_principal", "cnae_descricao", "cnae_secundario",
-    "natureza_juridica", "porte", "capital_social", "faturamento",
-    "quadro_funcionarios", "regime_tributario", "opcao_simples", "opcao_mei",
-    "data_abertura", "programas_especiais", "importa_exporta",
-    # contato
-    "telefone_1", "telefone_2", "email", "site",
-    # enriquecido
-    "enr_whatsapp_principal", "enr_telefone_principal", "enr_email_principal",
-    "enr_instagram_principal", "enr_linkedin_principal", "enr_facebook_principal",
-    "enr_site_validado", "enr_score_site_match", "enr_fonte_atualizada_em",
-    # decisor
-    "socio_admin", "socio_admin_qualificacao", "qtd_socios",
-    # risco
-    "qtd_dividas",
-    # procedência — auditoria e LGPD
-    "fonte_telefone", "fonte_email", "fonte_whatsapp",
-]
+# A ordem de saída vive em colunas.py, e em lugar nenhum mais.
+#
+# Havia aqui uma segunda lista, COLUNAS_SAIDA, de duas versões atrás. Ela
+# pedia uf, municipio, cnae_principal, telefone_1, enr_* e socio_admin —
+# nomes que achatar() parou de produzir quando as colunas foram reorganizadas
+# em blocos. O resultado era silencioso: nenhuma dessas colunas casava, tudo
+# caía no caminho de "extras" ordenado por alfabeto, e a ordem que o cliente
+# ditou (cnpj, razao_social, nome_fantasia, contatos, email, instagram, site,
+# cidade, estado, socios, cnae_codigo, cnae_descricao) NÃO era a que saía.
+#
+# Duas listas de ordem é uma a mais. Esta é a que fica.
 
 
 # ─────────────────────────────────────────── entrada
@@ -160,7 +151,8 @@ def escrever_csv(linhas: list[dict], caminho, colunas=None) -> Path:
         return caminho
 
     if colunas is None:
-        presentes = [c for c in COLUNAS_SAIDA if any(c in l for l in linhas)]
+        oficiais = _c.colunas_de(None)
+        presentes = [c for c in oficiais if any(c in l for l in linhas)]
         extras = sorted({k for l in linhas for k in l} - set(presentes))
         colunas = presentes + extras
 
@@ -178,9 +170,6 @@ def escrever_csv(linhas: list[dict], caminho, colunas=None) -> Path:
 #  O separador é decidido AQUI, não na consolidação: a mesma lista vira
 #  ";" no CSV e XLSX e " - " no PDF.
 # ════════════════════════════════════════════════════════════════════
-
-from . import colunas as _c
-
 
 def _preparar(linhas, blocos=None, formato="csv"):
     """Escolhe colunas, remove as vazias de verdade e junta os multivalores."""
