@@ -36,6 +36,17 @@ SABOTAGENS = [
      'SEPARADOR = {"csv": ";", "xlsx": ";", "pdf": ";"}'),
     ("teto de CNAE removido", "buscar",
      "        if len(cnae) > MAX_CNAES:", "        if False:"),
+    # A que escapou de verdade: a consulta pedindo coluna que o indice enxuto
+    # nao carrega. Passou pela suite inteira porque os fixtures eram escritos
+    # a mao, com todas as colunas.
+    ("consulta pede coluna que o índice não tem", "buscar",
+     "  em.razao_social,\n  CASE e.situacao_cadastral",
+     "  em.razao_social,\n  e.nome_fantasia,\n  CASE e.situacao_cadastral"),
+    ("ordenação referencia coluna inexistente", "buscar",
+     '"cnpj": "cnpj",', '"contato": "e.email DESC", "cnpj": "cnpj",'),
+    ("portão não confere as colunas da base", "carregar",
+     "            faltando = [c for c in queridas if c not in tem]",
+     "            faltando = []"),
 ]
 
 

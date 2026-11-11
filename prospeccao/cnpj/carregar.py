@@ -35,7 +35,8 @@ COLUNAS = {
     "estabelecimentos": ["cnpj_basico", "cnpj_ordem", "cnpj_dv", "uf",
                          "municipio", "cnae_principal", "situacao_cadastral",
                          "matriz_filial"],
-    "empresas": ["cnpj_basico", "razao_social", "porte"],
+    # capital_social fica: e a coluna que ordena quem entra nos primeiros 100.
+    "empresas": ["cnpj_basico", "razao_social", "porte", "capital_social"],
 }
 # 02 = ATIVA. Empresa baixada ou inapta não é lead.
 SO_ATIVAS = "situacao_cadastral = '02'"
@@ -351,6 +352,17 @@ def verificar(db: Path | None = None) -> tuple[bool, list[str]]:
         if falhas:
             return False, falhas
 
+        # A lista COLUNAS e um pedido, nao uma garantia: o que o espelho nao
+        # trouxer simplesmente nao carrega, e a consulta so quebra depois, em
+        # producao. Conferir aqui transforma isso em falha do portao.
+        for tabela, queridas in COLUNAS.items():
+            tem = {d[0] for d in con.execute(
+                f"SELECT * FROM {tabela} LIMIT 0").description}
+            faltando = [c for c in queridas if c not in tem]
+            if faltando:
+                falhas.append(f"{tabela} sem as colunas {faltando} — "
+                              "o espelho mudou de layout?")
+
         n = con.execute("SELECT COUNT(*) FROM estabelecimentos").fetchone()[0]
         # O índice guarda só estabelecimentos ATIVOS: ~28,4 mi dos 73,8 mi
         # totais. O piso tem de refletir isso, senão o portão reprova uma
@@ -403,9 +415,16 @@ def conferir(db: Path | None = None) -> None:
         print(f"  {uf}  {n:>12,}".replace(",", "."))
 
     print("\n=== AMOSTRA — os campos caíram no lugar certo? ===")
-    cols = "cnpj_basico, nome_fantasia, uf, municipio, cnae_principal, situacao_cadastral"
-    for r in con.execute(f"SELECT {cols} FROM estabelecimentos WHERE uf='SC' LIMIT 3").fetchall():
-        print("  ", r)
+    # Lista derivada da tabela, não escrita à mão: uma coluna fixa que o
+    # índice deixou de carregar fazia o conferir morrer no último passo,
+    # depois de a carga inteira já ter dado certo.
+    tem = [d[0] for d in con.execute(
+        "SELECT * FROM estabelecimentos LIMIT 0").description]
+    cols = [c for c in ("cnpj_basico", "uf", "municipio", "cnae_principal",
+                        "situacao_cadastral", "matriz_filial") if c in tem]
+    for r in con.execute(f"SELECT {', '.join(cols)} FROM estabelecimentos "
+                         f"WHERE uf='SC' LIMIT 3").fetchall():
+        print("  ", dict(zip(cols, r)))
     con.close()
 
     ok, falhas = verificar(db)

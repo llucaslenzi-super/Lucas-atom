@@ -221,9 +221,9 @@ def test_cache_guarda_nao_encontrado(tmp_path):
 def test_teto_de_dois_cnaes_no_filtro():
     from cnpj.buscar import CnaesDemais, MAX_CNAES, _onde
     assert MAX_CNAES == 2
-    _onde(None, "13,14", "ativa", None, None, None, None, None, False, False, False)
+    _onde(None, "13,14", "ativa", None, None, None, False, False)
     with pytest.raises(CnaesDemais):
-        _onde(None, "13,14,15", "ativa", None, None, None, None, None, False, False, False)
+        _onde(None, "13,14,15", "ativa", None, None, None, False, False)
 
 
 def test_planilha_nao_tem_teto_de_cnae():
@@ -250,20 +250,26 @@ def test_verificar_e_portao_nao_relatorio():
         assert sinal in fonte, f"falta a checagem: {sinal}"
 
 
-def test_conferir_sai_com_erro_quando_reprova(monkeypatch):
+def test_conferir_sai_com_erro_quando_reprova(tmp_path, monkeypatch):
+    """
+    O portão tem de devolver código de saída != 0: num timer às 3h da manhã,
+    um `print` não barra nada — a unidade passaria como sucesso com a base
+    errada.
+
+    Roda contra base real, montada pelo carregar. A versão antiga usava uma
+    conexão falsa, que não tem esquema nenhum — e era o esquema que estava
+    errado, então ela não poderia ter pegado o problema.
+    """
     from cnpj import carregar
-    monkeypatch.setattr(carregar, "verificar", lambda db=None: (False, ["falha falsa"]))
-    monkeypatch.setattr(carregar.duckdb, "connect", lambda *a, **k: _ConFalsa())
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+
+    monkeypatch.setattr(carregar, "verificar",
+                        lambda db=None: (False, ["falha forçada"]))
     with pytest.raises(SystemExit) as e:
-        carregar.conferir()
+        carregar.conferir(db)
     assert e.value.code == 1
-
-
-class _ConFalsa:
-    def execute(self, *a, **k): return self
-    def fetchall(self): return []
-    def fetchone(self): return (0,)
-    def close(self): pass
 
 
 # ───────────────────────────── carga: filtro na entrada
@@ -327,3 +333,106 @@ def test_ajustar_poe_teto_de_memoria():
     efetivo = con.execute("SELECT current_setting('memory_limit')").fetchone()[0]
     assert efetivo and efetivo != "0 bytes", f"teto não aplicado: {efetivo!r}"
     con.close()
+
+
+def _base_de_teste(tmp_path):
+    """
+    Monta uma base pelo MESMO caminho da produção: Parquet → carregar().
+
+    Os outros testes montam tabelas à mão, e foi por isso que ninguém viu
+    quando o índice foi enxugado para 8 colunas e a consulta continuou
+    pedindo nome_fantasia, bairro, telefone e e-mail. Fixture escrito à mão
+    passa sempre; o que precisa passar é o esquema que o carregar constrói.
+    """
+    import duckdb
+    from cnpj import carregar
+
+    bruto = tmp_path / "bruto"
+    bruto.mkdir()
+    c = duckdb.connect()
+    c.execute(f"""COPY (SELECT * FROM (VALUES
+      ('11111111','0001','11','SC','8317','1399400','02','1'),
+      ('22222222','0002','22','SC','8317','1399400','02','2'),
+      ('44444444','0001','44','SP','7107','4751201','02','1'))
+      t(cnpj_basico,cnpj_ordem,cnpj_dv,uf,municipio,cnae_fiscal_principal,
+        situacao_cadastral,identificador_matriz_filial))
+      TO '{bruto / "estabelecimentos__a.parquet"}' (FORMAT PARQUET)""")
+    c.execute(f"""COPY (SELECT * FROM (VALUES
+      ('11111111','ALFA TECELAGEM LTDA','03','150000,00'),
+      ('22222222','BETA MALHAS SA','05','9000000,00'),
+      ('44444444','GAMA COMERCIO ME','01','5000,00'))
+      t(cnpj_basico,razao_social,porte_empresa,capital_social_da_empresa))
+      TO '{bruto / "empresas__a.parquet"}' (FORMAT PARQUET)""")
+    c.execute(f"""COPY (SELECT * FROM (VALUES
+      ('1399400','Fabricação de outros produtos têxteis'),
+      ('4751201','Comércio varejista de informática'))
+      t(codigo,descricao))
+      TO '{bruto / "cnaes__a.parquet"}' (FORMAT PARQUET)""")
+    c.execute(f"""COPY (SELECT * FROM (VALUES
+      ('8317','GASPAR'),('7107','SAO PAULO'))
+      t(codigo,descricao))
+      TO '{bruto / "municipios__a.parquet"}' (FORMAT PARQUET)""")
+    c.close()
+
+    db = tmp_path / "base.duckdb"
+    carregar.carregar(db=db, bruto=bruto)
+    return db
+
+
+def test_consulta_roda_contra_o_esquema_real(tmp_path, monkeypatch):
+    """
+    O teste que faltava. Sem ele, a consulta pedia sete colunas que o índice
+    não carrega e nada avisava — nem a suíte, nem a carga: só estouraria na
+    primeira pesquisa de verdade.
+    """
+    from cnpj import buscar as mod
+    from cnpj import carregar
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+
+    assert mod.contar(db=db, uf="SC", excluir_entregues=False) == 2
+    assert mod.contar(db=db, uf="SC", apenas_matriz=True,
+                      excluir_entregues=False) == 1
+    assert mod.contar(db=db, uf="SC", cnae="13", excluir_entregues=False) == 2
+    assert mod.contar(db=db, uf="SC", cnae="4751", excluir_entregues=False) == 0
+
+    linhas = mod.buscar(db=db, uf="SC", excluir_entregues=False)
+    assert len(linhas) == 2
+    # maior capital primeiro — é a ordem que decide quem entra nos 100
+    assert linhas[0]["razao_social"] == "BETA MALHAS SA"
+    assert linhas[0]["capital_social"] == 9000000.0
+    assert linhas[0]["cnpj"] == "22222222000222"
+    assert linhas[0]["municipio"] == "GASPAR"
+    assert linhas[0]["cnae_descricao"].startswith("Fabricação")
+    assert linhas[0]["situacao"] == "ATIVA"
+    assert linhas[0]["matriz_filial"] == "FILIAL"
+    assert linhas[1]["matriz_filial"] == "MATRIZ"
+
+    # toda ordenação oferecida tem de rodar: uma que referencie coluna
+    # inexistente só aparece quando alguém a usa
+    for ordem in mod.ORDENS:
+        assert mod.buscar(db=db, uf="SC", ordenar=ordem,
+                          excluir_entregues=False)
+
+
+def test_portao_pega_coluna_que_o_espelho_nao_trouxe(tmp_path, monkeypatch):
+    """
+    COLUNAS é um pedido, não garantia: se o espelho parar de trazer uma
+    coluna, ela simplesmente não carrega e a consulta quebra depois. O portão
+    tem de reprovar a base antes de ela entrar em uso.
+    """
+    import duckdb
+    from cnpj import carregar
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+
+    con = duckdb.connect(str(db))
+    con.execute("DROP INDEX IF EXISTS ix_empresas_cnpj_basico")
+    con.execute("ALTER TABLE empresas DROP COLUMN capital_social")
+    con.close()
+
+    ok, falhas = carregar.verificar(db)
+    assert not ok
+    assert any("capital_social" in f for f in falhas), falhas

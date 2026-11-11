@@ -51,8 +51,7 @@ def _lista(v):
 
 
 def _onde(uf, cnae, situacao, porte, municipio, capital_min,
-          abertura_de, abertura_ate, com_contato, apenas_matriz=False,
-          excluir_entregues=True):
+          apenas_matriz=False, excluir_entregues=True):
     cond, par = [], []
 
     # Empresa já entregue nunca volta. A exclusão acontece AQUI, no filtro, e
@@ -116,18 +115,6 @@ def _onde(uf, cnae, situacao, porte, municipio, capital_min,
         cond.append("TRY_CAST(REPLACE(em.capital_social, ',', '.') AS DOUBLE) >= ?")
         par.append(float(capital_min))
 
-    if abertura_de:
-        cond.append("e.data_abertura >= ?")
-        par.append(str(abertura_de).replace("-", ""))
-    if abertura_ate:
-        cond.append("e.data_abertura <= ?")
-        par.append(str(abertura_ate).replace("-", ""))
-
-    # Só quem já tem algum contato no cadastro — economiza requisição depois.
-    if com_contato:
-        cond.append("(NULLIF(TRIM(e.telefone_1),'') IS NOT NULL "
-                    "OR NULLIF(TRIM(e.email),'') IS NOT NULL)")
-
     return (" WHERE " + " AND ".join(cond) if cond else ""), par
 
 
@@ -135,7 +122,6 @@ _SELECT = """
 SELECT
   e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv            AS cnpj,
   em.razao_social,
-  e.nome_fantasia,
   CASE e.situacao_cadastral WHEN '02' THEN 'ATIVA' WHEN '2' THEN 'ATIVA'
        WHEN '01' THEN 'NULA' WHEN '03' THEN 'SUSPENSA'
        WHEN '04' THEN 'INAPTA' WHEN '08' THEN 'BAIXADA'
@@ -143,30 +129,30 @@ SELECT
   CASE e.matriz_filial WHEN '1' THEN 'MATRIZ' ELSE 'FILIAL' END AS matriz_filial,
   e.uf,
   m.descricao                                            AS municipio,
-  e.bairro,
   e.cnae_principal,
   c.descricao                                            AS cnae_descricao,
   CASE em.porte WHEN '01' THEN 'MICROEMPRESA' WHEN '03' THEN 'PEQUENO PORTE'
        WHEN '05' THEN 'MEDIO/GRANDE PORTE' ELSE 'NAO INFORMADO' END AS porte,
-  TRY_CAST(REPLACE(em.capital_social, ',', '.') AS DOUBLE) AS capital_social,
-  e.data_abertura,
-  NULLIF(TRIM(e.ddd_1 || e.telefone_1), '')              AS telefone_1,
-  NULLIF(TRIM(e.ddd_2 || e.telefone_2), '')              AS telefone_2,
-  NULLIF(TRIM(e.email), '')                              AS email
+  TRY_CAST(REPLACE(em.capital_social, ',', '.') AS DOUBLE) AS capital_social
+-- Nome fantasia, bairro, data de abertura, telefone e e-mail NÃO entram: o
+-- índice da Receita responde só "quais CNPJs existem em tal estado, cidade e
+-- CNAE". Todo o resto do lead vem da API do EmpresAqui, e guardar aqui era
+-- duplicata que custava disco e memória numa máquina de 1 GB.
 FROM estabelecimentos e
 LEFT JOIN empresas   em ON em.cnpj_basico = e.cnpj_basico
 LEFT JOIN municipios m  ON m.codigo       = e.municipio
 LEFT JOIN cnaes      c  ON c.codigo       = e.cnae_principal
 """
 
+# Só o que o índice enxuto sabe ordenar. A ordem importa de verdade: ela
+# decide quem entra nos primeiros 100 e, como empresa entregue nunca volta,
+# quem fica para a próxima lista.
 ORDENS = {
-    "capital": "capital_social DESC NULLS LAST",
-    "recentes": "e.data_abertura DESC",
-    "antigas": "e.data_abertura ASC",
-    # Prioriza quem já tem contato: menos requisição gasta no enriquecimento.
-    "contato": "(CASE WHEN NULLIF(TRIM(e.email),'') IS NOT NULL THEN 2 ELSE 0 END + "
-               "CASE WHEN NULLIF(TRIM(e.telefone_1),'') IS NOT NULL THEN 1 ELSE 0 END) DESC, "
-               "capital_social DESC NULLS LAST",
+    # Desempate por CNPJ: sem ele, duas pesquisas iguais podem devolver
+    # ordens diferentes entre empresas de mesmo capital, e a fatia 1 de hoje
+    # não seria a fatia 1 de amanhã.
+    "capital": "capital_social DESC NULLS LAST, cnpj",
+    "cnpj": "cnpj",
 }
 
 
@@ -174,8 +160,7 @@ def contar(db=None, **f) -> int:
     """Conta antes de gastar. O portão do funil começa aqui."""
     onde, par = _onde(f.get("uf"), f.get("cnae"), f.get("situacao", "ativa"),
                       f.get("porte"), f.get("municipio"), f.get("capital_min"),
-                      f.get("abertura_de"), f.get("abertura_ate"),
-                      f.get("com_contato"), f.get("apenas_matriz", False),
+                      f.get("apenas_matriz", False),
                       f.get("excluir_entregues", True))
     con = _conectar(db)
     sql = ("SELECT COUNT(*) FROM estabelecimentos e "
@@ -187,12 +172,10 @@ def contar(db=None, **f) -> int:
 
 
 def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,
-           municipio=None, capital_min=None, abertura_de=None, abertura_ate=None,
-           com_contato=False, apenas_matriz=False, excluir_entregues=True,
-           ordenar="capital", limite=None) -> list[dict]:
+           municipio=None, capital_min=None, apenas_matriz=False,
+           excluir_entregues=True, ordenar="capital", limite=None) -> list[dict]:
     onde, par = _onde(uf, cnae, situacao, porte, municipio, capital_min,
-                      abertura_de, abertura_ate, com_contato, apenas_matriz,
-                      excluir_entregues)
+                      apenas_matriz, excluir_entregues)
     sql = _SELECT + onde + f" ORDER BY {ORDENS.get(ordenar, ORDENS['capital'])}"
     if limite:
         sql += f" LIMIT {int(limite)}"
