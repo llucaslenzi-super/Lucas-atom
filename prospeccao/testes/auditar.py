@@ -67,6 +67,9 @@ SABOTAGENS += [
     ("fatia órfã nunca é retomada", "servico/fila",
      "OR (f.status='executando' AND f.iniciada_em < ?))",
      "OR (f.status='executando' AND 1=0))"),
+    # Juntar a mais não pode mudar o resultado; juntar a menos, sim.
+    ("contagem junta tabela que o filtro não usa", "buscar",
+     '    if f.get("porte"):', "    if True:"),
 ]
 
 

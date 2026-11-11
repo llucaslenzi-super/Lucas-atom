@@ -146,18 +146,36 @@ ORDENS = {"cnpj": "cnpj"}
 
 
 def contar(db=None, **f) -> int:
-    """Conta antes de gastar. O portão do funil começa aqui."""
+    """
+    Conta antes de gastar. O portão do funil começa aqui.
+
+    Junta só a tabela que o filtro usar. Medido na VM de 1 GB, com SC + CNAE
+    13 + matriz: 2,5 s com os dois LEFT JOIN, 0,129 s sem eles. Vinte vezes.
+
+    A causa é que o DuckDB não tem como provar que `empresas` tem no máximo
+    uma linha por CNPJ — não existe chave declarada —, então é obrigado a
+    executar o cruzamento contra 27 milhões de linhas para contar 7.822, mesmo
+    que nenhuma coluna das tabelas juntadas apareça no WHERE.
+    """
     onde, par = _onde(f.get("uf"), f.get("cnae"), f.get("situacao", "ativa"),
                       f.get("porte"), f.get("municipio"),
                       f.get("apenas_matriz", False),
                       f.get("excluir_entregues", True))
     con = _conectar(db)
-    sql = ("SELECT COUNT(*) FROM estabelecimentos e "
-           "LEFT JOIN empresas em ON em.cnpj_basico = e.cnpj_basico "
-           "LEFT JOIN municipios m ON m.codigo = e.municipio" + onde)
+    sql = "SELECT COUNT(*) FROM estabelecimentos e" + _juntas(f) + onde
     n = con.execute(sql, par).fetchone()[0]
     con.close()
     return n
+
+
+def _juntas(f: dict) -> str:
+    """Só as tabelas que o filtro realmente consulta."""
+    sql = ""
+    if f.get("porte"):
+        sql += " LEFT JOIN empresas em ON em.cnpj_basico = e.cnpj_basico"
+    if f.get("municipio"):
+        sql += " LEFT JOIN municipios m ON m.codigo = e.municipio"
+    return sql
 
 
 def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,

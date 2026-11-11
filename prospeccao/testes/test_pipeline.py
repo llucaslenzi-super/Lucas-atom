@@ -625,3 +625,37 @@ def test_fatia_orfa_e_retomada_sem_reiniciar_o_worker(tmp_path):
     f.db.commit()
 
     assert f.proxima_fatia() is not None, "fatia órfã nunca foi retomada"
+
+
+def test_contagem_junta_so_o_que_o_filtro_usa(tmp_path, monkeypatch):
+    """
+    Medido na VM de 1 GB, SC + CNAE 13 + matriz: 2,5 s com os dois LEFT JOIN
+    contra 2,2 s de cache aquecido, e 0,129 s sem eles. Vinte vezes mais
+    rápido, sem índice nenhum — os joins eram puro desperdício para um filtro
+    que só olha estabelecimentos.
+
+    O que este teste protege não é a velocidade, é o RESULTADO: juntar menos
+    não pode mudar o número.
+    """
+    from cnpj import buscar as mod
+    from cnpj import carregar
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+
+    # o caso comum não junta nada
+    assert mod._juntas({"uf": "SC", "cnae": "13", "apenas_matriz": True}) == ""
+    # e quem filtra porte ou cidade junta o que precisa
+    assert "empresas" in mod._juntas({"porte": "pequeno"})
+    assert "municipios" in mod._juntas({"municipio": "GASPAR"})
+
+    # o número não muda por causa disso
+    sem = mod.contar(db=db, uf="SC", excluir_entregues=False)
+    com = mod.contar(db=db, uf="SC", municipio="GASPAR",
+                     excluir_entregues=False)
+    assert sem == 2
+    assert com == 2, "a junta mudou o resultado"
+
+    # e o filtro por porte continua funcionando, agora com a junta certa
+    assert mod.contar(db=db, uf="SC", porte="pequeno",
+                      excluir_entregues=False) == 1
