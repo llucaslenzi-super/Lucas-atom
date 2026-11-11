@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ESQUEMA = """
@@ -69,9 +69,19 @@ CREATE TABLE IF NOT EXISTS servico (chave TEXT PRIMARY KEY, valor TEXT);
 # xlsx+csv depois do base64, e refazer uma que falhe custa dois minutos.
 TAMANHO_LISTA = 100
 
+# Fatia que ficou em 'executando' por mais tempo que isto é considerada órfã:
+# worker morto, travado, ou máquina reiniciada. Uma fatia de 100 leva uns dois
+# minutos a 1 req/s, então quinze é folga de sete vezes.
+MINUTOS_ORFA = 15
+
 
 def _agora() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _agora_menos(minutos: int) -> str:
+    return (datetime.now(timezone.utc)
+            - timedelta(minutes=minutos)).isoformat(timespec="seconds")
 
 
 class Fila:
@@ -115,18 +125,35 @@ class Fila:
 
     # ---------------------------------------------------------- worker
     def proxima_fatia(self) -> sqlite3.Row | None:
-        """FIFO. Todas as fatias têm o mesmo tamanho, então não há prioridade."""
+        """
+        FIFO. Todas as fatias têm o mesmo tamanho, então não há prioridade.
+
+        Pega fatia 'pendente' e também fatia 'executando' velha demais — ver
+        MINUTOS_ORFA. Antes, a recuperação de órfã acontecia UMA vez, na
+        partida do worker: worker vivo mas travado deixava a fatia em
+        'executando' para sempre, e o pedido nunca terminava.
+
+        E aceita pedido 'pausado'. Antes não: devolver_fatia punha o pedido em
+        'pausado' e esta consulta só olhava 'pendente' e 'executando', então
+        um token inválido no meio de uma fatia CONGELAVA o pedido para sempre,
+        sem erro visível em lugar nenhum.
+        """
+        limite = _agora_menos(MINUTOS_ORFA)
         cur = self.db.execute("""
             UPDATE fatias SET status='executando', iniciada_em=?
             WHERE (pedido_id, n) = (
               SELECT f.pedido_id, f.n FROM fatias f JOIN pedidos p ON p.id=f.pedido_id
-              WHERE f.status='pendente' AND p.status IN ('pendente','executando')
+              WHERE (f.status='pendente'
+                     OR (f.status='executando' AND f.iniciada_em < ?))
+                AND p.status IN ('pendente','executando','pausado')
               ORDER BY p.criado_em, f.n LIMIT 1)
-            RETURNING *""", [_agora()])
+            RETURNING *""", [_agora(), limite])
         r = cur.fetchone()
         if r:
+            # Sai de 'pausado' também: o que travou o pedido passou.
             self.db.execute(
-                "UPDATE pedidos SET status='executando' WHERE id=? AND status='pendente'",
+                "UPDATE pedidos SET status='executando', motivo=NULL "
+                "WHERE id=? AND status IN ('pendente','pausado')",
                 [r["pedido_id"]])
             self.db.commit()
         return r
@@ -139,14 +166,28 @@ class Fila:
             WHERE pedido_id=? AND n=?""",
             ("erro" if erro else "pronto", leads, requisicoes, cache_hits, custo,
              json.dumps(arquivos or {}), erro, _agora(), pid, n))
-        pend = self.db.execute(
-            "SELECT COUNT(*) c FROM fatias WHERE pedido_id=? AND status IN "
-            "('pendente','executando')", [pid]).fetchone()["c"]
-        if not pend:
+        # 'pronto' só quando TODAS as fatias deram certo. Antes esta contagem
+        # ignorava as fatias em erro, então nove prontas e uma falhada viravam
+        # um pedido 'pronto' — e o cliente recebia lista incompleta como
+        # completa, que é a pior mentira que este sistema pode contar.
+        resto = self.db.execute(
+            "SELECT "
+            " SUM(status IN ('pendente','executando')) abertas,"
+            " SUM(status='erro') falhas "
+            "FROM fatias WHERE pedido_id=?", [pid]).fetchone()
+        if not resto["abertas"]:
+            final = "parcial" if resto["falhas"] else "pronto"
+            motivo = (f"{resto['falhas']} de "
+                      f"{self._total_fatias(pid)} listas falharam"
+                      if resto["falhas"] else None)
             self.db.execute(
-                "UPDATE pedidos SET status='pronto', concluido_em=? WHERE id=?",
-                [_agora(), pid])
+                "UPDATE pedidos SET status=?, motivo=?, concluido_em=? WHERE id=?",
+                [final, motivo, _agora(), pid])
         self.db.commit()
+
+    def _total_fatias(self, pid: str) -> int:
+        return self.db.execute("SELECT COUNT(*) c FROM fatias WHERE pedido_id=?",
+                               [pid]).fetchone()["c"]
 
     def devolver_fatia(self, pid: str, n: int, motivo: str):
         """Token inválido ou teto batido: a fatia volta para a fila, não some."""

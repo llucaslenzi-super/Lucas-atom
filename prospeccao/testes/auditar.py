@@ -58,6 +58,15 @@ SABOTAGENS = [
 SABOTAGENS += [
     ("lista deixa de ter 100 no máximo", "servico/fila",
      "TAMANHO_LISTA = 100", "TAMANHO_LISTA = 100000"),
+    ("pedido pausado não volta para a fila", "servico/fila",
+     "AND p.status IN ('pendente','executando','pausado')",
+     "AND p.status IN ('pendente','executando')"),
+    ("fatia em erro não impede pedido pronto", "servico/fila",
+     'final = "parcial" if resto["falhas"] else "pronto"',
+     'final = "pronto"'),
+    ("fatia órfã nunca é retomada", "servico/fila",
+     "OR (f.status='executando' AND f.iniciada_em < ?))",
+     "OR (f.status='executando' AND 1=0))"),
 ]
 
 

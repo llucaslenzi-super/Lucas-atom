@@ -530,3 +530,98 @@ def test_api_recusa_entrada_invalida():
                       "86.950.110/0001-30"])
     assert p.cnpjs == ["84429695000111", "86950110000130"]
     assert p.formatos == ["xlsx", "csv"]
+
+
+# ───────────────── a fila não trava e não mente
+
+def test_pedido_pausado_volta_para_a_fila(tmp_path):
+    """
+    Token inválido no meio de uma fatia punha o pedido em 'pausado', e
+    proxima_fatia só olhava 'pendente' e 'executando'. O pedido congelava
+    para sempre, sem erro em lugar nenhum: o cliente esperava uma lista que
+    nunca ia sair.
+    """
+    from servico.fila import Fila
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    r = f.criar([f"{i:014d}" for i in range(150)], filtro="teste")
+
+    fatia = f.proxima_fatia()
+    assert fatia is not None
+    f.devolver_fatia(r["id"], fatia["n"], "token_empresaqui")
+
+    estado = f.db.execute("SELECT status, motivo FROM pedidos WHERE id=?",
+                          [r["id"]]).fetchone()
+    assert estado["status"] == "pausado"
+
+    # e no ciclo seguinte ela TEM de voltar
+    de_novo = f.proxima_fatia()
+    assert de_novo is not None, "pedido pausado ficou preso para sempre"
+    assert de_novo["n"] == fatia["n"]
+    depois = f.db.execute("SELECT status, motivo FROM pedidos WHERE id=?",
+                          [r["id"]]).fetchone()
+    assert depois["status"] == "executando"
+    assert depois["motivo"] is None
+
+
+def test_fatia_em_erro_faz_pedido_parcial_nao_pronto(tmp_path):
+    """
+    Nove listas prontas e uma falhada não é pedido pronto. A contagem antiga
+    só olhava fatias abertas, então o pedido virava 'pronto' com uma lista
+    faltando — lista incompleta entregue como completa.
+    """
+    from servico.fila import Fila
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    r = f.criar([f"{i:014d}" for i in range(250)], filtro="teste")
+
+    for esperado_erro in (False, True, False):
+        fatia = f.proxima_fatia()
+        f.concluir_fatia(r["id"], fatia["n"], leads=100,
+                         erro="estourou" if esperado_erro else None)
+
+    p = f.db.execute("SELECT status, motivo FROM pedidos WHERE id=?",
+                     [r["id"]]).fetchone()
+    assert p["status"] == "parcial", p["status"]
+    assert "1 de 3" in p["motivo"], p["motivo"]
+
+
+def test_pedido_sem_falha_fica_pronto(tmp_path):
+    """O contrário também tem de valer: sem erro nenhum, é pronto."""
+    from servico.fila import Fila
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    r = f.criar([f"{i:014d}" for i in range(150)], filtro="teste")
+    for _ in range(2):
+        fatia = f.proxima_fatia()
+        f.concluir_fatia(r["id"], fatia["n"], leads=100)
+
+    p = f.db.execute("SELECT status, motivo FROM pedidos WHERE id=?",
+                     [r["id"]]).fetchone()
+    assert p["status"] == "pronto"
+    assert p["motivo"] is None
+
+
+def test_fatia_orfa_e_retomada_sem_reiniciar_o_worker(tmp_path):
+    """
+    A recuperação de órfã acontecia UMA vez, na partida do worker. Worker
+    vivo mas travado deixava a fatia em 'executando' para sempre.
+    """
+    from servico.fila import Fila, MINUTOS_ORFA
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    r = f.criar([f"{i:014d}" for i in range(100)], filtro="teste")
+
+    fatia = f.proxima_fatia()
+    assert f.proxima_fatia() is None, "pegou a mesma fatia duas vezes"
+
+    # envelhece a fatia como se o worker tivesse travado nela
+    velho = (__import__("datetime").datetime.now(
+        __import__("datetime").timezone.utc)
+        - __import__("datetime").timedelta(minutes=MINUTOS_ORFA + 1)
+    ).isoformat(timespec="seconds")
+    f.db.execute("UPDATE fatias SET iniciada_em=? WHERE pedido_id=? AND n=?",
+                 [velho, r["id"], fatia["n"]])
+    f.db.commit()
+
+    assert f.proxima_fatia() is not None, "fatia órfã nunca foi retomada"
