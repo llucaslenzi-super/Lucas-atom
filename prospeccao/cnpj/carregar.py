@@ -114,7 +114,25 @@ def _ram_mb() -> int:
     return 2048
 
 
-def ajustar(con, leitura=False) -> dict:
+# Fração da RAM que cada tipo de processo pode pedir ao DuckDB.
+#
+# Isto não é afinação, é aritmética. A primeira versão dava 45% a TODO
+# processo, e os processos somam: na VM de 953 MB seriam 428 MB para a API,
+# 428 para o worker e 428 para a ponte — 135% da máquina. Cada um respeitava
+# o seu teto; os três juntos não cabiam.
+#
+# Medido na VM com só a API respondendo: 815 MB usados de 953, 138 MB livres
+# e o swap já em uso. Não havia folga para um segundo processo.
+#
+# A carga roda sozinha, numa unidade `oneshot`, e aí pode pedir muito. Os
+# serviços rodam os três ao mesmo tempo e só consultam — uma consulta de
+# contagem cabe em dezenas de MB, não em centenas.
+FRACAO_CARGA = 0.45      # montar/carregar: roda sozinho
+FRACAO_SERVICO = 0.12    # api, worker e ponte: 3 × 12% = 36% da máquina
+PISO_MB = 128
+
+
+def ajustar(con, leitura=False, servico=None) -> dict:
     """
     Põe teto de memória no DuckDB e dá a ele um lugar para derramar.
 
@@ -125,9 +143,15 @@ def ajustar(con, leitura=False) -> dict:
 
     Com teto e temp_directory ele derrama em disco e fica lento, em vez de
     morrer. Disco é o que sobra; RAM não.
+
+    `servico=True` pede a fração pequena, porque três processos de serviço
+    convivem. Quando não é dito, `leitura` decide: quem só lê é serviço.
     """
     ram = _ram_mb()
-    limite = max(256, int(ram * 0.45))
+    if servico is None:
+        servico = leitura
+    fracao = FRACAO_SERVICO if servico else FRACAO_CARGA
+    limite = max(PISO_MB, int(ram * fracao))
     fios = 1 if ram < 2048 else min(4, os.cpu_count() or 1)
     tmp = Path(os.environ.get("DUCKDB_TMP", config.DADOS / "tmp"))
     try:
@@ -145,7 +169,8 @@ def ajustar(con, leitura=False) -> dict:
             con.execute("SET preserve_insertion_order=false")
         except Exception:
             pass
-    return {"ram_mb": ram, "memory_limit_mb": limite, "threads": fios}
+    return {"ram_mb": ram, "memory_limit_mb": limite, "threads": fios,
+            "servico": servico}
 
 
 def _colunas(con, caminho: str) -> list[str]:
@@ -341,7 +366,9 @@ def verificar(db: Path | None = None) -> tuple[bool, list[str]]:
     deslocada, arquivo com WAL pendente. Nenhum deles levanta exceção sozinho.
     """
     con = duckdb.connect(str(db or config.DB), read_only=True)
-    ajustar(con, leitura=True)
+    # leitura, mas NÃO é serviço: roda dentro da unidade de carga, sozinha, e
+    # cruza 28 milhões de linhas com a tabela de CNAEs. Leva a fatia grande.
+    ajustar(con, leitura=True, servico=False)
     falhas = []
     try:
         tabelas = {t for (t,) in con.execute("SHOW TABLES").fetchall()}

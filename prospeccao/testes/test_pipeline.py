@@ -659,3 +659,45 @@ def test_contagem_junta_so_o_que_o_filtro_usa(tmp_path, monkeypatch):
     # e o filtro por porte continua funcionando, agora com a junta certa
     assert mod.contar(db=db, uf="SC", porte="pequeno",
                       excluir_entregues=False) == 1
+
+
+def test_tetos_de_memoria_dos_servicos_cabem_juntos(monkeypatch):
+    """
+    Aritmética, não afinação. A primeira versão dava 45% da RAM a TODO
+    processo, e processos somam: na VM de 953 MB seriam 428 MB para a API,
+    428 para o worker e 428 para a ponte — 135% da máquina. Cada um respeitava
+    o seu teto; os três juntos não cabiam.
+
+    Medido na VM com só a API de pé: 815 MB usados de 953 e o swap já em uso.
+    """
+    import duckdb
+    from cnpj import carregar
+
+    # a máquina real do Misner
+    monkeypatch.setattr(carregar, "_ram_mb", lambda: 953)
+
+    con = duckdb.connect()
+    servico = carregar.ajustar(con, leitura=True)["memory_limit_mb"]
+    carga = carregar.ajustar(con, leitura=False)["memory_limit_mb"]
+    con.close()
+
+    assert servico * 3 <= 953 * 0.5, (
+        f"api + worker + ponte pedem {servico * 3} MB de uma máquina de 953")
+    assert carga > servico, "a carga roda sozinha e deve levar a fatia grande"
+    assert servico >= 128, "abaixo disso a contagem derrama em disco sempre"
+
+
+def test_consulta_pega_a_fracao_de_servico_e_carga_a_grande(monkeypatch):
+    """
+    Quem decide não é o tipo de acesso, é quantos processos convivem. A
+    verificação da base é leitura, mas roda sozinha dentro da unidade de
+    carga e cruza 28 milhões de linhas: leva a fatia grande.
+    """
+    import inspect
+    from cnpj import buscar, carregar
+
+    # a consulta do serviço pede a fatia pequena
+    assert "leitura=True" in inspect.getsource(buscar._conectar)
+    # a verificação pede a grande, apesar de ser leitura
+    fonte = inspect.getsource(carregar.verificar)
+    assert "servico=False" in fonte

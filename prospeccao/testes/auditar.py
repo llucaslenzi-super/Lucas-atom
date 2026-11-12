@@ -70,6 +70,8 @@ SABOTAGENS += [
     # Juntar a mais não pode mudar o resultado; juntar a menos, sim.
     ("contagem junta tabela que o filtro não usa", "buscar",
      '    if f.get("porte"):', "    if True:"),
+    ("teto de memória igual para carga e serviço", "carregar",
+     "FRACAO_SERVICO = 0.12", "FRACAO_SERVICO = 0.45"),
 ]
 
 
