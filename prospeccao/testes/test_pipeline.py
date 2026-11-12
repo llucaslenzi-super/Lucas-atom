@@ -1875,3 +1875,59 @@ def test_ponte_empurra_o_andamento_so_de_pedido_em_curso(tmp_path, monkeypatch):
     assert ponte.reportar_progresso(fila) == 0, (
         "pedido terminado ainda gera pulso; em repouso tem de ser zero")
     assert enviados == []
+
+
+def test_pedido_que_nao_fechou_na_entrega_fecha_no_pulso(tmp_path, monkeypatch):
+    """
+    O defeito achado com o sistema no ar: o pedido 1 ficou "em curso" para
+    sempre na tela, girando uma barra de um trabalho que já tinha acabado.
+
+    Fechar era tiro único, na entrega. Se o PATCH falhasse — ou se o pedido
+    tivesse terminado antes de o fechamento existir — ninguém voltava nele.
+    Agora o pulso confere, de 15 em 15 segundos, até conseguir.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    monkeypatch.setattr(ponte, "publicar_entregues", lambda *a, **k: None)
+    monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
+
+    # o n8n recusa o fechamento na hora da entrega
+    quedas = {"n": 1}
+
+    def as_vezes(linha, **campos):
+        if "status" in campos and quedas["n"]:
+            quedas["n"] -= 1
+            raise RuntimeError("n8n caiu bem na hora de fechar")
+        marcas.append(campos)
+    marcas = []
+    monkeypatch.setattr(ponte, "marcar_pedido", as_vezes)
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    pid, _ = _fatia_pronta(tmp_path, fila)
+    fila.db.execute("UPDATE pedidos SET chave_idem='77' WHERE id=?", [pid])
+    fila.db.commit()
+
+    try:
+        ponte.entregar(fila)
+    except RuntimeError:
+        pass
+    fechado = fila.db.execute("SELECT fechado_em FROM pedidos WHERE id=?",
+                              [pid]).fetchone()["fechado_em"]
+    assert fechado is None, "marcou como fechado sem o n8n ter aceitado"
+    assert not [m for m in marcas if "status" in m]
+
+    # o pulso seguinte conserta sozinho
+    ponte.reportar_progresso(fila)
+    assert [m for m in marcas if m.get("status") == "pronto"], (
+        "o pulso não voltou no pedido que ficou sem fechar")
+    assert fila.db.execute("SELECT fechado_em FROM pedidos WHERE id=?",
+                           [pid]).fetchone()["fechado_em"]
+
+    # e não fica repetindo o PATCH para sempre
+    marcas.clear()
+    ponte.reportar_progresso(fila)
+    assert marcas == [], "continua batendo num pedido que já foi fechado"

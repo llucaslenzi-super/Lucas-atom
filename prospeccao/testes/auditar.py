@@ -91,6 +91,16 @@ SABOTAGENS += [
     ("marcação nunca marca nada", "entregues",
      'l["ja_entregue"] = "SIM" if quando else ""',
      'l["ja_entregue"] = ""'),
+    # Fechar o pedido no n8n volta a ser tiro unico: cartao gira para sempre.
+    ("fechamento do pedido volta a ser tiro unico", "servico/ponte",
+     '''            "WHERE status NOT IN ('pendente','executando') "''',
+     '''            "WHERE status IS NULL "'''),
+    ("marca como fechado antes de o n8n aceitar", "servico/ponte",
+     '    marcar_pedido(linha_n8n, status=p["status"], motivo=p["motivo"] or "")\n'
+     "    # S\u00f3 depois de o n8n aceitar",
+     '    fila.db.execute("UPDATE pedidos SET fechado_em=\'x\' WHERE id=?", [pedido_id])\n'
+     '    marcar_pedido(linha_n8n, status=p["status"], motivo=p["motivo"] or "")\n'
+     "    # S\u00f3 depois de o n8n aceitar"),
     # A planilha manda no total, e o andamento que sustenta a barra.
     ("planilha volta a respeitar o total pedido", "servico/ponte",
      "        r = fila.criar(cnpjs, filtro=\"planilha\", formatos=formatos,",

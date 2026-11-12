@@ -111,8 +111,9 @@ class Fila:
             if coluna not in tem:
                 self.db.execute(f"ALTER TABLE fatias ADD COLUMN {coluna} {tipo}")
         tem = {c["name"] for c in self.db.execute("PRAGMA table_info(pedidos)")}
-        if "cliente" not in tem:
-            self.db.execute("ALTER TABLE pedidos ADD COLUMN cliente TEXT")
+        for coluna, tipo in (("cliente", "TEXT"), ("fechado_em", "TEXT")):
+            if coluna not in tem:
+                self.db.execute(f"ALTER TABLE pedidos ADD COLUMN {coluna} {tipo}")
 
     # ---------------------------------------------------------- criar
     def criar(self, cnpjs: list[str], *, filtro="", formatos=("xlsx",), blocos=None,

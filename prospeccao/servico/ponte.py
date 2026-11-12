@@ -279,8 +279,22 @@ def reportar_progresso(fila: Fila) -> int:
         except Exception as e:
             # n8n fora do ar ou lento: não insiste com os outros nesta volta.
             _log(f"andamento de {ped['id']} não subiu: {type(e).__name__}")
-            break
+            return enviados
         enviados += 1
+
+    # Fechamento é CONFERIDO aqui, não só tentado uma vez na entrega. Um
+    # PATCH que falhe — ou um pedido que terminou antes deste código existir —
+    # deixava o cartão "em curso" para sempre na tela do cliente, girando uma
+    # barra de um trabalho que acabou.
+    for ped in fila.db.execute(
+            "SELECT id, chave_idem FROM pedidos "
+            "WHERE status NOT IN ('pendente','executando') "
+            "  AND chave_idem IS NOT NULL AND fechado_em IS NULL").fetchall():
+        try:
+            fechar_pedido(fila, ped["id"], ped["chave_idem"])
+        except Exception as e:
+            _log(f"fechamento de {ped['id']} não subiu: {type(e).__name__}")
+            break
     return enviados
 
 
@@ -303,6 +317,12 @@ def fechar_pedido(fila: Fila, pedido_id: str, linha_n8n: str | None) -> None:
     if pendentes:                      # ainda há fatia pronta por entregar
         return
     marcar_pedido(linha_n8n, status=p["status"], motivo=p["motivo"] or "")
+    # Só depois de o n8n aceitar. Se o PATCH levantar, o pedido continua sem
+    # marca e o pulso tenta de novo daqui a 15 segundos.
+    fila.db.execute("UPDATE pedidos SET fechado_em=? WHERE id=?",
+                    [datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                     pedido_id])
+    fila.db.commit()
 
 
 def entregar(fila: Fila) -> int:
