@@ -808,3 +808,85 @@ def test_post_do_apify_poe_o_teto_na_url(monkeypatch):
     vistas.clear()
     apify._post("ator~x", {"a": 1})
     assert "maxTotalChargeUsd" not in vistas[0], "teto apareceu sem ser pedido"
+
+
+# ───────────────── cópia de segurança do registro de entregues
+
+def test_copia_e_restauracao_do_registro(tmp_path, monkeypatch):
+    """
+    O registro de entregues é o único dado irreversível do sistema: sem ele,
+    empresa já entregue volta a aparecer e a promessa do produto cai.
+
+    A cópia é CSV comprimido, não cópia do .duckdb: copiar o arquivo enquanto
+    alguém escreve produz cópia rasgada, que abre e devolve dados pela metade
+    — e isso só aparece no dia da restauração.
+    """
+    from cnpj import entregues
+
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+
+    entregues.registrar([{"cnpj": f"{i:014d}", "razao_social": f"E {i}"}
+                         for i in range(500)], "lote-1", "SC+13")
+    copia = entregues.copiar(tmp_path / "copias")
+
+    # 10 bytes por empresa: 250 mil cabem em 2,4 MB, e é por isso que o dump
+    # pode ir para o n8n como segunda cópia
+    assert copia.stat().st_size < 500 * 40, copia.stat().st_size
+
+    reg.unlink()
+    assert entregues.restaurar(copia, arquivo=reg) == 500
+
+
+def test_restaurar_nao_apaga_nem_rebobina_o_que_veio_depois(tmp_path, monkeypatch):
+    """
+    Duas coisas que a restauração não pode fazer, e a segunda é sutil:
+
+    1. apagar empresa entregue depois do dump — seria entregá-la de novo;
+    2. REBOBINAR o lote de uma empresa reentregue depois do dump. Com
+       `INSERT OR REPLACE` a contagem fica igual e parece certo, mas a linha
+       volta ao lote antigo e o histórico de qual lista entregou aquela
+       empresa se perde. Daí o `INSERT OR IGNORE`.
+    """
+    import duckdb
+    from cnpj import entregues
+
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+
+    entregues.registrar([{"cnpj": "84429695000111"}], "lote-1", "")
+    copia = entregues.copiar(tmp_path / "copias")
+
+    # uma empresa nova, e a MESMA empresa reentregue noutro lote
+    entregues.registrar([{"cnpj": "86950110000130"}], "lote-2", "")
+    entregues.registrar([{"cnpj": "84429695000111"}], "lote-2", "")
+
+    assert entregues.restaurar(copia, arquivo=reg) == 2, (
+        "a restauração apagou quem foi entregue depois do dump")
+
+    con = duckdb.connect(str(reg), read_only=True)
+    lote = con.execute("SELECT lote_id FROM entregues WHERE cnpj=?",
+                       ["84429695000111"]).fetchone()[0]
+    con.close()
+    assert lote == "lote-2", (
+        f"a restauração rebobinou o lote para {lote}: o registro de qual "
+        "lista entregou a empresa se perdeu")
+
+
+def test_copia_respeita_a_retencao(tmp_path, monkeypatch):
+    """Sem retenção a pasta cresce para sempre num disco de 15 GB."""
+    from cnpj import entregues
+
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+    entregues.registrar([{"cnpj": "84429695000111"}], "lote-1", "")
+
+    pasta = tmp_path / "copias"
+    for i in range(5):
+        entregues.copiar(pasta, manter=3)
+        # nomes são por minuto; forja nomes distintos para o teste
+        atual = sorted(pasta.glob("entregues-*.csv.gz"))[-1]
+        atual.rename(pasta / f"entregues-2026010{i}-0000.csv.gz")
+
+    entregues.copiar(pasta, manter=3)
+    assert len(list(pasta.glob("entregues-*.csv.gz"))) == 3

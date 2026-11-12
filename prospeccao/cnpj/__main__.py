@@ -89,6 +89,18 @@ def cmd_carregar(a):
     _ok(f"{len(resumo)} tabela(s) em {config.DB}")
 
 
+def cmd_copiar(a):
+    from . import entregues
+    destino = entregues.copiar(a.pasta, manter=a.manter)
+    _ok(f"→ {destino}  ({destino.stat().st_size/1024:.1f} KB)")
+
+
+def cmd_restaurar(a):
+    from . import entregues
+    n = entregues.restaurar(a.arquivo)
+    _ok(f"registro com {_n(n)} entregues depois da restauração")
+
+
 def cmd_conferir(a):
     mod_carregar.conferir()
 
@@ -230,6 +242,15 @@ def main(argv=None):
 
     s = sub.add_parser("carregar", help="carrega os Parquet já baixados")
     s.set_defaults(fn=cmd_carregar)
+
+    s = sub.add_parser("copiar", help="cópia de segurança do registro de entregues")
+    s.add_argument("--pasta")
+    s.add_argument("--manter", type=int, default=14)
+    s.set_defaults(fn=cmd_copiar)
+
+    s = sub.add_parser("restaurar", help="volta um dump para o registro")
+    s.add_argument("arquivo")
+    s.set_defaults(fn=cmd_restaurar)
 
     s = sub.add_parser("conferir", help="confere a base carregada")
     s.set_defaults(fn=cmd_conferir)

@@ -131,9 +131,32 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+# cópia diária do registro de entregues, às 2h20.
+# É o único dado irreversível do sistema: sem ele, empresa já entregue volta
+# a aparecer em lista futura e a promessa do produto cai.
+cat > /etc/systemd/system/$SLUG-copia.service <<EOF
+[Unit]
+Description=Misner · cópia do registro de entregues
+[Service]
+Type=oneshot
+$(_comum)
+ExecStart=$RAIZ/venv/bin/python -m cnpj copiar
+EOF
+
+cat > /etc/systemd/system/$SLUG-copia.timer <<EOF
+[Unit]
+Description=Misner · cópia diária do registro
+[Timer]
+OnCalendar=*-*-* 02:20:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl daemon-reload
 systemctl enable --now $SLUG-api $SLUG-worker
 systemctl enable $SLUG-base.timer
+systemctl enable --now $SLUG-copia.timer
 systemctl start --no-block $SLUG-base    # ~40 min; não bloqueia o boot
 
 # 8 ─ túnel Cloudflare, se houver token

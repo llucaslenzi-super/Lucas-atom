@@ -91,3 +91,69 @@ def limpar_lote(lote_id: str, arquivo=None) -> int:
     con.execute("DELETE FROM entregues WHERE lote_id=?", [lote_id])
     con.close()
     return n
+
+
+# ─────────────────────────────────────────── cópia de segurança
+
+def copiar(pasta: Path | None = None, manter=14,
+           arquivo: Path | None = None) -> Path:
+    """
+    Dump consistente do registro, em CSV comprimido.
+
+    Por que CSV e não uma cópia do .duckdb: copiar o arquivo enquanto alguém
+    escreve nele produz cópia rasgada, que abre mas devolve dados pela metade
+    — e o estrago só aparece no dia em que alguém precisa restaurar. O `COPY`
+    do DuckDB lê numa transação e escreve algo que sempre volta inteiro.
+
+    Por que não manda para fora da VM aqui: a conta de serviço desta máquina
+    tem escopo de Storage SOMENTE LEITURA, então gravar em bucket é recusado
+    antes de sair.
+
+    Duas coisas levam o dump para fora, e as duas já estão previstas:
+      · o snapshot diário do disco, já configurado no projeto — e o papel
+        deste dump é garantir que o snapshot carregue um arquivo restaurável
+        em vez de um banco possivelmente rasgado;
+      · a ponte, que empurra o dump mais recente para o n8n. Cabe: medido em
+        10 bytes por empresa comprimida, 250 mil empresas dão 2,4 MB.
+    """
+    from datetime import datetime, timezone
+
+    pasta = Path(pasta or (config.DADOS / "copias"))
+    pasta.mkdir(parents=True, exist_ok=True)
+    selo = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    destino = pasta / f"entregues-{selo}.csv.gz"
+
+    con = _con(arquivo, somente_leitura=True)
+    try:
+        n = con.execute("SELECT COUNT(*) FROM entregues").fetchone()[0]
+        con.execute(
+            f"COPY (SELECT * FROM entregues ORDER BY entregue_em) "
+            f"TO '{destino}' (FORMAT CSV, HEADER, COMPRESSION GZIP)")
+    finally:
+        con.close()
+
+    # Retenção: sem isto a pasta cresce para sempre num disco de 15 GB.
+    copias = sorted(pasta.glob("entregues-*.csv.gz"))
+    for velha in copias[:-manter] if manter else []:
+        velha.unlink(missing_ok=True)
+
+    print(f"  cópia de {n:,} entregues → {destino}".replace(",", "."))
+    return destino
+
+
+def restaurar(csv_gz: Path, arquivo: Path | None = None) -> int:
+    """
+    Volta um dump para dentro do registro, sem apagar o que já está lá.
+
+    `INSERT OR IGNORE` de propósito: restaurar não pode desentregar empresa
+    que foi entregue depois do dump.
+    """
+    con = _con(arquivo)
+    try:
+        con.execute(
+            f"INSERT OR IGNORE INTO entregues "
+            f"SELECT * FROM read_csv_auto('{Path(csv_gz)}')")
+        n = con.execute("SELECT COUNT(*) FROM entregues").fetchone()[0]
+    finally:
+        con.close()
+    return n

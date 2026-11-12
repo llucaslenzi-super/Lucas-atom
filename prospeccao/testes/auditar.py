@@ -77,6 +77,8 @@ SABOTAGENS += [
      '    if False:\n        params["maxTotalChargeUsd"]'),
     ("custo desconhecido virando zero", "apify",
      '        resumo["custo_usd"] = None', '        resumo["custo_usd"] = 0.0'),
+    ("restauração apaga quem foi entregue depois", "entregues",
+     "INSERT OR IGNORE INTO entregues ", "INSERT OR REPLACE INTO entregues "),
 ]
 
 
