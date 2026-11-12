@@ -1272,3 +1272,32 @@ def test_ponte_usa_o_id_da_linha_como_chave_de_idempotencia(tmp_path, monkeypatc
     assert segundo.get("repetido") is True
     assert segundo["id"] == primeiro["id"], "criou um segundo pedido"
     assert fila.db.execute("SELECT COUNT(*) c FROM pedidos").fetchone()["c"] == 1
+
+
+def test_ponte_nao_liga_apify_por_omissao(tmp_path, monkeypatch):
+    """
+    O padrão da fila é Apify LIGADO. A ponte cria pedidos vindos de fora, e um
+    pedido que não diga nada sobre enriquecimento gastaria dólar sem ninguém
+    ter pedido. Quem quer gastar diz que quer, e diz quanto.
+    """
+    import base64
+    from servico import ponte
+    from servico.fila import Fila
+
+    monkeypatch.setattr(ponte.config, "DADOS", tmp_path)
+    fila = Fila(tmp_path / "jobs.sqlite")
+    b64 = base64.b64encode(b"cnpj\n84429695000111\n").decode()
+
+    mudo = ponte.criar_local(fila, {"id": 1, "cliente": "a", "planilha_b64": b64,
+                                    "planilha_nome": "x.csv"})
+    p = fila.db.execute("SELECT com_apify, teto_usd FROM pedidos WHERE id=?",
+                        [mudo["id"]]).fetchone()
+    assert p["com_apify"] == 0, "a ponte ligou o Apify sem ninguém pedir"
+
+    pedindo = ponte.criar_local(fila, {"id": 2, "cliente": "a", "planilha_b64": b64,
+                                       "planilha_nome": "x.csv",
+                                       "com_apify": "sim", "teto_usd": 7.5})
+    p = fila.db.execute("SELECT com_apify, teto_usd FROM pedidos WHERE id=?",
+                        [pedindo["id"]]).fetchone()
+    assert p["com_apify"] == 1
+    assert p["teto_usd"] == 7.5

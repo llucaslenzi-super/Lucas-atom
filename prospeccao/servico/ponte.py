@@ -111,6 +111,17 @@ def criar_local(fila: Fila, linha: dict) -> dict:
     pendente e NÃO cria um segundo pedido — a fila já tem UNIQUE nessa chave.
     """
     cliente = (linha.get("cliente") or "").strip() or entregues.CLIENTE_ANTIGO
+
+    # Enriquecimento é DESLIGADO por omissão, e isso é decisão de segurança,
+    # não de desenho: o padrão da fila é ligado, então um pedido que não diga
+    # nada gastaria dólar de Apify sem ninguém ter pedido. Quem quer gastar
+    # diz que quer, e diz quanto.
+    com_apify = str(linha.get("com_apify") or "").strip().lower() in (
+        "1", "true", "sim", "s", "yes")
+    try:
+        teto_usd = float(linha.get("teto_usd") or 0) or 2.0
+    except (TypeError, ValueError):
+        teto_usd = 2.0
     formatos = tuple(
         f.strip() for f in (linha.get("formatos") or "xlsx,csv").split(",")
         if f.strip() in TIPOS) or ("xlsx", "csv")
@@ -132,7 +143,8 @@ def criar_local(fila: Fila, linha: dict) -> dict:
                 f"nenhum CNPJ válido na planilha "
                 f"({info.get('invalidos_descartados', 0)} descartados pelo dígito)")
         return fila.criar(cnpjs, filtro="planilha", formatos=formatos,
-                          cliente=cliente, chave_idem=str(linha["id"]))
+                          cliente=cliente, com_apify=com_apify,
+                          teto_usd=teto_usd, chave_idem=str(linha["id"]))
 
     from cnpj import buscar as mod_buscar
     filtro = json.loads(linha.get("filtro") or "{}")
@@ -144,6 +156,7 @@ def criar_local(fila: Fila, linha: dict) -> dict:
     return fila.criar([l["cnpj"] for l in linhas],
                       filtro=json.dumps(filtro, ensure_ascii=False),
                       formatos=formatos, cliente=cliente,
+                      com_apify=com_apify, teto_usd=teto_usd,
                       chave_idem=str(linha["id"]))
 
 
