@@ -182,10 +182,22 @@ def test_csv_poe_multivalor_entre_aspas(tmp_path):
 
 # ─────────────────────────────── coluna vazia
 
-def test_coluna_totalmente_vazia_sai():
+def test_coluna_totalmente_vazia_sai_mas_nao_as_doze_ditadas():
+    """
+    A regra tem duas metades, e a segunda foi aprendida na primeira entrega
+    real: coluna vazia sai da 13 em diante, onde há 60 campos e a maioria não
+    se aplica; nas 12 que o cliente ditou, fica — senão a ordem dele sai com
+    buraco quando um campo está vazio em todas as linhas.
+    """
     L = achatar(_resposta())[0]
     cols, _ = exportar._preparar([L], None, "csv")
-    assert "instagram" not in cols
+
+    # fora das 12: sai
+    assert "linkedin" not in cols
+    assert "facebook" not in cols
+    # dentro das 12: fica, mesmo vazia
+    assert "instagram" in cols
+    assert cols[:12] == C.BLOCOS["nucleo"]
 
 
 def test_coluna_com_um_unico_valor_permanece():
@@ -1443,3 +1455,48 @@ def test_fatia_de_pedido_cancelado_nao_e_pega(tmp_path):
     f.db.commit()
 
     assert f.proxima_fatia() is None, "trabalhou num pedido cancelado"
+
+
+# ──────────── defeitos achados na primeira entrega de verdade
+
+def test_as_doze_colunas_ditadas_nunca_desaparecem(tmp_path):
+    """
+    Achado na primeira entrega real, com três empresas de SC: nenhuma tinha
+    Instagram, a regra de "remover coluna vazia" tirou a coluna 6, e a ordem
+    que o cliente ditou saiu com buraco — E-mail seguido de Site.
+
+    Remover coluna vazia é bom da 13 em diante, onde há 60 campos e a maioria
+    não se aplica. Nas 12 primeiras é errado.
+    """
+    from openpyxl import load_workbook
+    from cnpj import colunas as c
+
+    # leads sem instagram, sem site, sem sócios: o caso real
+    leads = [{**{col: "" for col in c.colunas_de(None)},
+              "cnpj": f"{i:014d}", "razao_social": f"EMPRESA {i}",
+              "cidade": "GASPAR", "estado": "SC"} for i in range(3)]
+
+    feitos = exportar.escrever(leads, tmp_path / "f", ("xlsx", "csv"))
+    ws = load_workbook(feitos["xlsx"], read_only=True).active
+    cab = [x.value for x in next(ws.rows)]
+    assert cab[:12] == DOZE_PRIMEIRAS, cab[:12]
+
+    cabcsv = [x.strip('"') for x in
+              feitos["csv"].read_text(encoding="utf-8-sig").splitlines()[0].split(";")]
+    assert cabcsv[:12] == DOZE_PRIMEIRAS, cabcsv[:12]
+
+
+def test_site_sem_host_nao_vira_link(tmp_path):
+    """
+    A base devolveu "www." para uma empresa e a planilha saiu com
+    "https://www." — pior que vazio, porque parece link, o cliente clica e
+    não vai a lugar nenhum. Apareceu na primeira entrega, com três empresas.
+    """
+    from cnpj.empresaqui import _url
+
+    for lixo in ("www.", "https://www.", "http://", "site", ".com", "a.b", ""):
+        assert _url(lixo) is None, f"{lixo!r} virou link"
+
+    assert _url("empresa.com.br") == "https://empresa.com.br"
+    assert _url("www.empresa.com.br") == "https://www.empresa.com.br"
+    assert _url("https://sub.empresa.com/p") == "https://sub.empresa.com/p"

@@ -182,7 +182,12 @@ def _preparar(linhas, blocos=None, formato="csv"):
                    (isinstance(l.get(c), (int, float)) and l.get(c) == 0)
                    for l in linhas)
 
-    cols = [c for c in cols if tem_valor(c)]
+    # As 12 primeiras foram ditadas pelo cliente e ficam SEMPRE, cheias ou
+    # vazias. Remover coluna vazia é bom da 13 em diante, onde há 60 campos e
+    # a maioria não se aplica; nas 12 é errado — numa entrega sem Instagram a
+    # coluna 6 desaparecia e a ordem que ele ditou saía com buraco.
+    fixas = set(_c.BLOCOS["nucleo"])
+    cols = [c for c in cols if c in fixas or tem_valor(c)]
     saida = [{c: _c.juntar(l.get(c), formato) for c in cols} for l in linhas]
     return cols, saida
 

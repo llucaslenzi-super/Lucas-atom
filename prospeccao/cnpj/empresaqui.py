@@ -284,11 +284,28 @@ def achatar(resposta: dict) -> list[dict]:
     return linhas
 
 
+# Um host de verdade: rótulo, ponto, e um sufixo de ao menos duas letras.
+_HOST = re.compile(r"^[a-z0-9][a-z0-9._-]*\.[a-z]{2,}$", re.I)
+
+
 def _url(v):
+    """
+    Devolve URL só quando há host de verdade.
+
+    A versão anterior grudava o esquema em qualquer coisa: a base devolveu
+    "www." para uma das empresas e saiu "https://www." na planilha —
+    pior que vazio, porque parece link, o cliente clica e não vai a lugar
+    nenhum. Apareceu na primeira entrega de verdade, com três empresas.
+    """
     v = (str(v or "")).strip()
     if not v:
         return None
-    return v if v.startswith(("http://", "https://")) else "https://" + v
+    sem_esquema = re.sub(r"^https?://", "", v, flags=re.I)
+    host = re.split(r"[/?#]", sem_esquema, 1)[0]
+    host = re.sub(r"^www\.", "", host, flags=re.I)
+    if not _HOST.match(host):
+        return None
+    return v if v.lower().startswith(("http://", "https://")) else "https://" + v
 
 
 def _fontes(valores, r, enr, tipo):
