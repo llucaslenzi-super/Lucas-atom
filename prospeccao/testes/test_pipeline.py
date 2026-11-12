@@ -1500,3 +1500,257 @@ def test_site_sem_host_nao_vira_link(tmp_path):
     assert _url("empresa.com.br") == "https://empresa.com.br"
     assert _url("www.empresa.com.br") == "https://www.empresa.com.br"
     assert _url("https://sub.empresa.com/p") == "https://sub.empresa.com/p"
+
+
+# ───────────────── a contagem de repetidas, da planilha até a tela
+
+def test_repetidas_chegam_ate_o_n8n(tmp_path, monkeypatch):
+    """
+    O cliente pede 100, a base tem 100, mas 50 ele já recebeu. Ele recebe as
+    100, com as 50 marcadas. Isso só vira informação na tela se a contagem
+    sobreviver a três saltos: worker → fila → payload do n8n.
+
+    Era onde ela morria: o worker calculava e jogava fora.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    monkeypatch.setattr(ponte, "_api", lambda *a, **k: {"data": []})
+    fila = Fila(tmp_path / "jobs.sqlite")
+
+    # raízes diferentes: o registro é por raiz, e 0..3 com zeros à esquerda
+    # dariam a MESMA raiz, fazendo o teste medir outra coisa
+    cnpjs = [f"1000000{i}000199" for i in range(4)]
+    # duas delas já foram para este cliente numa lista anterior
+    entregues.registrar([{"cnpj": c, "cnpj_base": c[:8]} for c in cnpjs[:2]],
+                        "lote-antigo", cliente="acme")
+
+    r = fila.criar(cnpjs, filtro="t", cliente="acme", formatos=("csv",))
+    fatia = fila.proxima_fatia()
+    leads = [{"cnpj": c, "cnpj_base": c[:8], "razao_social": "E"} for c in cnpjs]
+    repetidas = entregues.marcar(leads, "acme")
+    assert repetidas == 2
+    feitos = exportar.escrever(leads, tmp_path / "s" / "f-001", ("csv",))
+    fila.concluir_fatia(r["id"], fatia["n"], leads=len(leads),
+                        repetidas=repetidas,
+                        arquivos={k: str(v) for k, v in feitos.items()})
+
+    guardada = fila.db.execute(
+        "SELECT repetidas FROM fatias WHERE pedido_id=?", [r["id"]]).fetchone()
+    assert guardada["repetidas"] == 2, "a fila perdeu a contagem"
+
+    enviados = []
+    monkeypatch.setattr(ponte, "guardar",
+                        lambda *a, **k: enviados.append((a, k)))
+    assert ponte.entregar(fila) == 1
+    (args, _kw) = enviados[0]
+    assert args[4] == 4 and args[5] == 2, (
+        f"a ponte mandou empresas={args[4]} repetidas={args[5]}, esperado 4 e 2")
+
+
+def test_payload_do_guardar_leva_novas_e_repetidas(tmp_path, monkeypatch):
+    """O webhook recebe as duas contagens, e novas é o que sobra."""
+    from servico import ponte
+
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    corpos = []
+
+    class FalsaResposta:
+        def read(self): return b'{"ok": true}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def falso_urlopen(req, timeout=None):
+        corpos.append(json.loads(req.data.decode()))
+        return FalsaResposta()
+
+    monkeypatch.setattr(ponte.urllib.request, "urlopen", falso_urlopen)
+    arq = tmp_path / "l.csv"
+    arq.write_text("cnpj\n1\n", encoding="utf-8")
+    ponte.guardar("p1", 1, "csv", arq, empresas=100, repetidas=38)
+
+    assert corpos[0]["repetidas"] == 38
+    assert corpos[0]["novas"] == 62, "novas tem de ser o que não é repetido"
+
+
+def test_pedido_so_fecha_no_n8n_quando_todas_as_fatias_foram_entregues(
+        tmp_path, monkeypatch):
+    """
+    Com duas listas, fechar o pedido ao entregar a primeira faria a tela
+    dizer 'pronto' com metade do pedido na mão.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    monkeypatch.setattr(ponte, "publicar_entregues", lambda *a, **k: None)
+    monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
+    marcas = []
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda linha, **c: marcas.append((linha, c)))
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    cnpjs = [f"{i:014d}" for i in range(150)]      # duas fatias de 100 e 50
+    r = fila.criar(cnpjs, filtro="t", cliente="acme", formatos=("csv",),
+                   chave_idem="7")
+    for passo in (1, 2):
+        fatia = fila.proxima_fatia()
+        leads = [{"cnpj": c, "cnpj_base": c[:8]} for c in json.loads(fatia["cnpjs"])]
+        feitos = exportar.escrever(leads, tmp_path / "s" / f"f-{passo}", ("csv",))
+        fila.concluir_fatia(r["id"], fatia["n"], leads=len(leads),
+                            arquivos={k: str(v) for k, v in feitos.items()})
+        ponte.entregar(fila)
+        if passo == 1:
+            assert marcas == [], "fechou o pedido com uma lista ainda por fazer"
+
+    assert len(marcas) == 1, f"esperava um fechamento, houve {len(marcas)}"
+    assert marcas[0][0] == "7" and marcas[0][1]["status"] == "pronto"
+
+
+def test_espelho_no_n8n_nao_desfaz_a_entrega(tmp_path, monkeypatch):
+    """
+    O espelho de entregues no n8n é conveniência da tela. Se ele falhar, a
+    entrega continua valendo: a verdade é o DuckDB da VM. Tratar o espelho
+    como parte da transação faria a mesma fatia ser reenviada para sempre.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
+    monkeypatch.setattr(ponte, "marcar_pedido", lambda *a, **k: None)
+
+    def espelho_quebrado(*a, **k):
+        raise urllib.error.URLError("n8n fora do ar")
+    monkeypatch.setattr(ponte, "publicar_entregues", espelho_quebrado)
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    pid, cnpjs = _fatia_pronta(tmp_path, fila)
+    assert ponte.entregar(fila) == 1
+    assert entregues.ja_entregues(cliente="acme") == {c[:8] for c in cnpjs}
+    assert ponte.entregar(fila) == 0, "reenviou por causa do espelho"
+
+
+def test_espelho_manda_a_raiz_para_a_tela_poder_procurar(tmp_path, monkeypatch):
+    """
+    A Data Table só filtra por igualdade. Sem a raiz como coluna própria, a
+    busca por CNPJ na tela não teria como achar nada.
+    """
+    from servico import ponte
+
+    enviados = []
+    monkeypatch.setattr(ponte, "_api",
+                        lambda caminho, **k: enviados.append((caminho, k)))
+    ponte.publicar_entregues("acme", "p1-1", ["12345678000199"], "2026-11-12")
+
+    caminho, k = enviados[0]
+    assert "rows" in caminho and k["metodo"] == "POST"
+    linha = k["corpo"]["data"][0]
+    assert linha["raiz"] == "12345678" and linha["cliente"] == "acme"
+    assert linha["lote"] == "p1-1"
+
+
+def test_worker_grava_a_contagem_de_repetidas_na_fatia(tmp_path, monkeypatch):
+    """
+    O worker é quem calcula a contagem, e era ele quem a jogava fora. O teste
+    anterior começava uma casa depois, chamando `concluir_fatia` à mão — e com
+    isso a sabotagem no worker passava despercebida.
+
+    Este roda o `processar` de verdade, com a API falsa.
+    """
+    from servico import worker
+    from servico.fila import Fila
+    from cnpj import config, entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(config, "SAIDA", tmp_path / "saida")
+
+    cnpjs = [f"2000000{i}000199" for i in range(4)]
+    entregues.registrar([{"cnpj": c, "cnpj_base": c[:8]} for c in cnpjs[:3]],
+                        "lote-antigo", cliente="acme")
+
+    class RespostaFalsa:
+        def __init__(self, cnpj):
+            self.do_cache, self.http = False, 200
+            self.dados = {"cnpj": cnpj, "razao_social": "E " + cnpj}
+
+    class ApiFalsa:
+        def consultar_lote(self, cnpjs):
+            return [RespostaFalsa(c) for c in cnpjs]
+
+    monkeypatch.setattr(worker, "achatar",
+                        lambda d: [{"cnpj": d["cnpj"], "cnpj_base": d["cnpj"][:8],
+                                    "razao_social": d["razao_social"]}])
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    r = fila.criar(cnpjs, filtro="t", cliente="acme", formatos=("csv",),
+                   com_apify=False)
+    worker.processar(fila, fila.proxima_fatia(), ApiFalsa())
+
+    f = fila.db.execute("SELECT leads, repetidas FROM fatias WHERE pedido_id=?",
+                        [r["id"]]).fetchone()
+    assert f["leads"] == 4
+    assert f["repetidas"] == 3, (
+        f"o worker gravou repetidas={f['repetidas']}; três já eram do cliente")
+
+
+def test_pedido_pronto_com_lista_por_entregar_nao_fecha_no_n8n(
+        tmp_path, monkeypatch):
+    """
+    O caso que o teste anterior não alcançava: TODAS as fatias já terminaram
+    de ser geradas — então o pedido local já é 'pronto' —, mas uma delas ainda
+    não chegou ao n8n porque a entrega falhou.
+
+    Fechar o pedido aqui faria a tela dizer 'pronta' com uma lista faltando, e
+    ela pararia de perguntar — a lista nunca apareceria para o cliente.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    monkeypatch.setattr(ponte, "publicar_entregues", lambda *a, **k: None)
+    marcas = []
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda linha, **c: marcas.append(c))
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    cnpjs = [f"{i + 30000000000000:014d}" for i in range(150)]
+    r = fila.criar(cnpjs, filtro="t", cliente="acme", formatos=("csv",),
+                   chave_idem="9")
+    # as duas fatias ficam PRONTAS: o pedido local já é 'pronto'
+    for passo in (1, 2):
+        fatia = fila.proxima_fatia()
+        leads = [{"cnpj": c, "cnpj_base": c[:8]}
+                 for c in json.loads(fatia["cnpjs"])]
+        feitos = exportar.escrever(leads, tmp_path / "s" / f"f-{passo}", ("csv",))
+        fila.concluir_fatia(r["id"], fatia["n"], leads=len(leads),
+                            arquivos={k: str(v) for k, v in feitos.items()})
+    assert fila.db.execute("SELECT status FROM pedidos WHERE id=?",
+                           [r["id"]]).fetchone()["status"] == "pronto"
+
+    # o n8n aceita a primeira lista e recusa a segunda
+    aceitas = []
+
+    def guardar_capenga(pid, n, *a, **k):
+        if n == 2:
+            raise RuntimeError("n8n recusou")
+        aceitas.append(n)
+    monkeypatch.setattr(ponte, "guardar", guardar_capenga)
+
+    assert ponte.entregar(fila) == 1 and aceitas == [1]
+    assert marcas == [], (
+        "fechou o pedido no n8n com a lista 2 ainda por entregar")
+
+    # quando a segunda entra, aí sim
+    monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
+    assert ponte.entregar(fila) == 1
+    assert len(marcas) == 1 and marcas[0]["status"] == "pronto"

@@ -91,6 +91,19 @@ SABOTAGENS += [
     ("marcação nunca marca nada", "entregues",
      'l["ja_entregue"] = "SIM" if quando else ""',
      'l["ja_entregue"] = ""'),
+    # A contagem de repetidas, da planilha ate a tela.
+    ("worker volta a jogar fora a contagem de repetidas", "servico/worker",
+     "leads=len(leads), repetidas=repetidas,", "leads=len(leads), repetidas=0,"),
+    ("novas vira copia de empresas", "servico/ponte",
+     '"novas": max(0, empresas - repetidas),', '"novas": empresas,'),
+    ("pedido fecha no n8n com fatia ainda por entregar", "servico/ponte",
+     "    if pendentes:                      # ainda h\u00e1 fatia pronta por entregar",
+     "    if False:"),
+    ("espelho quebrado derruba a entrega", "servico/ponte",
+     "            publicar_entregues(cliente, lote, cnpjs, agora)\n        except Exception as e:",
+     "            publicar_entregues(cliente, lote, cnpjs, agora)\n        except ValueError as e:"),
+    ("espelho manda o cnpj inteiro no lugar da raiz", "servico/ponte",
+     '"raiz": c[:8],', '"raiz": c,'),
     # A ponte. Marcar entregue sem a entrega ter acontecido e o unico
     # estrago irreversivel deste sistema.
     ("ponte marca entregue antes de o n8n aceitar", "servico/ponte",

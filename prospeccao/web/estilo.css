@@ -1,0 +1,339 @@
+/* ============================================================
+   Missner · Agente de Prospecção
+   Identidade do catálogo 2026/01 e do site missner.com.br.
+   Cores medidas pixel a pixel das páginas do catálogo, não
+   escolhidas de memória:
+     navy   #191961  capa e lombadas
+     peri   #4F5DAA  página "Um mix completo de produtos"
+     mint   #A4D9D0  página "É no gesto de quem cuida"
+     salmao #FFC9B8  display sobre o peri
+     wordmark #081D5E
+   Tipografia: Montserrat é a fonte do site da Missner;
+   Playfair Display italic é a voz editorial do catálogo.
+   ============================================================ */
+
+:root {
+  /* marca, medidas */
+  --navy:      #191961;
+  --navy-deep: #0e0e45;
+  --navy-ink:  #081d5e;
+  --peri:      #4f5daa;
+  --mint:      #a4d9d0;
+  --mint-pale: #dcefe9;
+  --salmao:    #ffc9b8;
+
+  /* superfícies */
+  --ice:       #f2f4fa;
+  --ice-deep:  #e6eaf4;
+  --superficie:#ffffff;
+
+  /* texto */
+  --tinta:     #15173a;
+  --cinza:     #5a5f80;
+  --borda:     #e2e6f0;
+
+  /* estados */
+  --ok:        #1f6b5a;   --ok-bg:   #dcefe9;
+  --atencao:   #8a5a14;   --atencao-bg: #f7e9d3;
+  --erro:      #b3261e;   --erro-bg: #fbe3e1;
+  --foco:      #4f5daa;
+
+  /* acabamento */
+  --r:    14px;   /* superfície */
+  --r-sm: 8px;    /* controle   */
+  --r-pil: 999px;
+  --sh:    0 1px 3px rgba(14,14,69,.08);
+  --sh-lg: 0 10px 30px rgba(14,14,69,.22);
+  --respiro: clamp(18px, 2.6vw, 28px);
+
+  --ui: "Montserrat", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --display: "Playfair Display", Georgia, serif;
+}
+
+* { box-sizing: border-box; }
+
+/* O atributo hidden é como a tela esconde o que não é a vez dela. Sem o
+   !important, qualquer display: grid/flex de classe vence o hidden do
+   navegador e a tela antiga fica aparecendo embaixo da nova. */
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--ice);
+  color: var(--tinta);
+  font-family: var(--ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- a marca ---------- */
+/* O wordmark é o arquivo real da Missner, em máscara: a cor vem
+   de currentColor, então ele serve em navy sobre claro e em
+   branco sobre navy sem virar dois arquivos. */
+.marca {
+  display: block;
+  width: 190px; height: 43px;
+  background-color: currentColor;
+  -webkit-mask: var(--marca) center / contain no-repeat;
+          mask: var(--marca) center / contain no-repeat;
+}
+.marca.grande { width: 272px; height: 61px; }
+.marca.pequena { width: 132px; height: 30px; }
+
+.assinatura {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--cinza);
+  margin-top: 6px;
+}
+.chapa {              /* "Agente de Prospecção" sob a marca */
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--cinza);
+  margin-top: 10px;
+}
+
+/* ---------- tipografia ---------- */
+h1 {
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 500;
+  font-size: clamp(27px, 3.6vw, 38px);
+  line-height: 1.12;
+  letter-spacing: -.01em;
+  margin: 0 0 10px;
+  text-wrap: balance;
+  color: var(--navy);
+}
+h2 {
+  font-family: var(--ui);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -.01em;
+  margin: 0;
+  color: var(--navy);
+}
+.apoio {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--cinza);
+  max-width: 62ch;
+  margin: 0 0 22px;
+}
+.dica { font-size: 12px; color: var(--cinza); }
+.num  { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+.eyebrow {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .16em; text-transform: uppercase;
+  color: var(--peri);
+}
+
+/* ---------- barra de topo ---------- */
+.barra-topo {
+  background: var(--navy);
+  color: #fff;
+  box-shadow: var(--sh);
+}
+.barra-topo .dentro {
+  max-width: 940px; margin: 0 auto;
+  padding: 14px 20px;
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+}
+.barra-topo .marca { color: #fff; }
+.barra-topo nav { display: flex; gap: 4px; flex-wrap: wrap; }
+.b-nav {
+  font: inherit; font-size: 13px; font-weight: 500;
+  color: rgba(255,255,255,.76);
+  background: transparent;
+  border: 0; border-radius: var(--r-pil);
+  padding: 8px 14px; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.b-nav:hover { background: rgba(255,255,255,.08); color: #fff; }
+.b-nav[aria-current="page"] { background: rgba(255,255,255,.14); color: #fff; }
+
+.palco { max-width: 940px; margin: 0 auto; padding: 30px 20px 72px; }
+
+/* ---------- superfícies ---------- */
+.cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r);
+  box-shadow: var(--sh);
+  padding: var(--respiro);
+  margin-bottom: 18px;
+}
+.cartao.navy {
+  background: var(--navy); color: #fff; border-color: var(--navy);
+}
+.cartao.navy h1, .cartao.navy h2 { color: #fff; }
+.cartao.navy .apoio { color: rgba(255,255,255,.76); }
+
+.escolha {                      /* cartão que é botão */
+  display: block; width: 100%; text-align: left;
+  font: inherit; color: inherit; cursor: pointer;
+  background: var(--superficie);
+  border: 1.5px solid var(--borda);
+  border-radius: var(--r);
+  padding: 22px;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.escolha:hover { border-color: var(--peri); box-shadow: var(--sh); }
+.escolha[aria-pressed="true"] { border-color: var(--navy); background: #fafbff; }
+
+.linha { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+@media (max-width: 640px) { .linha { grid-template-columns: 1fr; } }
+
+/* ---------- campos ---------- */
+.campo { margin-bottom: 18px; }
+.campo label {
+  display: block; font-size: 13px; font-weight: 600;
+  margin-bottom: 6px; color: var(--tinta);
+}
+.campo input, .campo select {
+  width: 100%; font: inherit;
+  padding: 11px 13px;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-sm);
+  background: var(--superficie);
+  color: var(--tinta);
+  transition: border-color .15s, box-shadow .15s;
+}
+.campo input:hover, .campo select:hover { border-color: #c7cde0; }
+.campo input:focus, .campo select:focus {
+  outline: none; border-color: var(--peri);
+  box-shadow: 0 0 0 3px rgba(79,93,170,.16);
+}
+.campo input::placeholder { color: #9aa0bd; }
+.campo .dica { display: block; margin-top: 6px; }
+.campo label .dica { display: inline; margin: 0; font-weight: 400; }
+.campo input[type="file"] { padding: 9px; background: var(--ice); }
+
+/* ---------- botões ---------- */
+.b {
+  font: inherit; font-weight: 600; font-size: 14px;
+  padding: 11px 20px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: inline-flex; align-items: center; gap: 8px;
+  text-decoration: none;
+  transition: background .15s, border-color .15s, color .15s;
+}
+.b:active { transform: translateY(1px); }
+.b:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+.b-primario { background: var(--navy); color: #fff; }
+.b-primario:hover:not(:disabled) { background: var(--navy-deep); }
+
+.b-fantasma { background: var(--superficie); color: var(--navy); border-color: var(--borda); }
+.b-fantasma:hover:not(:disabled) { border-color: var(--peri); background: #fafbff; }
+
+.b-texto {
+  background: none; border: 0; color: var(--cinza);
+  font: inherit; font-weight: 600; cursor: pointer;
+  padding: 11px 4px;
+}
+.b-texto:hover { color: var(--navy); }
+
+.b-pequeno { font-size: 13px; padding: 8px 14px; }
+
+/* ---------- pílulas ---------- */
+.pil {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600;
+  padding: 4px 11px; border-radius: var(--r-pil);
+  white-space: nowrap;
+}
+.pil-ok    { background: var(--ok-bg);      color: var(--ok); }
+.pil-curso { background: var(--atencao-bg); color: var(--atencao); }
+.pil-fila  { background: var(--ice-deep);   color: var(--cinza); }
+.pil-erro  { background: var(--erro-bg);    color: var(--erro); }
+.pil-marca { background: var(--mint);       color: var(--navy-deep); }
+
+/* ---------- avisos ---------- */
+.aviso {
+  border-radius: var(--r-sm);
+  padding: 13px 16px;
+  font-size: 13px; line-height: 1.55;
+  margin: 16px 0 0;
+  border-left: 3px solid transparent;
+}
+.aviso-ok      { background: var(--ok-bg);      color: var(--ok);      border-left-color: var(--ok); }
+.aviso-atencao { background: var(--atencao-bg); color: var(--atencao); border-left-color: var(--atencao); }
+.aviso-erro    { background: var(--erro-bg);    color: var(--erro);    border-left-color: var(--erro); }
+.aviso-info    { background: var(--mint-pale);  color: var(--navy-deep); border-left-color: var(--mint); }
+.aviso strong  { font-weight: 700; }
+
+/* ---------- passos ---------- */
+.passos { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+.passo  { display: flex; align-items: center; gap: 9px; }
+.bolinha {
+  width: 27px; height: 27px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 12px; font-weight: 700;
+  background: var(--ice-deep); color: var(--cinza);
+  transition: background .15s, color .15s;
+}
+.passo.agora .bolinha { background: var(--navy); color: #fff; }
+.passo.feito .bolinha { background: var(--mint); color: var(--navy-deep); }
+.passo .rotulo { font-size: 13px; font-weight: 500; color: var(--cinza); }
+.passo.agora .rotulo { color: var(--navy); font-weight: 600; }
+.traco { flex: 1; height: 2px; background: var(--ice-deep); border-radius: 2px; }
+.traco.feito { background: var(--mint); }
+@media (max-width: 560px) { .passo .rotulo { display: none; } }
+
+/* ---------- tabela ---------- */
+.tab { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tab th {
+  text-align: left; font-size: 12px; font-weight: 600;
+  color: var(--cinza); padding: 8px 0;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.tab td { padding: 10px 0; border-top: 1px solid var(--borda); }
+.tab td.chave { color: var(--cinza); }
+.tab td.valor { text-align: right; font-weight: 600; }
+
+/* ---------- esqueleto de carga ---------- */
+.esq {
+  height: 13px; border-radius: 6px;
+  background: linear-gradient(90deg, var(--ice-deep) 25%, #eff2f9 37%, var(--ice-deep) 63%);
+  background-size: 400% 100%;
+  animation: desliza 1.3s ease infinite;
+}
+@keyframes desliza { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* ---------- foco: não sai, é o único jeito de usar sem mouse ---------- */
+:focus-visible {
+  outline: 2px solid var(--foco);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ---------- porta de entrada ---------- */
+.porta {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid; place-items: center;
+  padding: 24px 16px;
+  background:
+    radial-gradient(900px 440px at 50% -12%, rgba(164,217,208,.38), transparent 70%),
+    var(--ice);
+}
+.porta-dentro { width: 100%; max-width: 380px; }
+.porta .marca { display: block; }
+.porta .chapa { text-align: center; }

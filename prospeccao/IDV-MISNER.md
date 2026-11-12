@@ -1,146 +1,121 @@
-# IDV — identidade visual Missner
+# Identidade visual — Missner
 
-Extraída do **agente de vendas Missner que está no ar**, na instância da Atom:
-Data Table `missner_ui_html`, 64 KB de HTML servidos em `/missner-app`.
+De onde isto saiu: o **catálogo de produtos 2026/01** (o flip-book) e o site
+`missner.com.br`. As cores não foram escolhidas por semelhança: foram medidas
+pixel a pixel nas páginas do catálogo, com um script, e estão abaixo com o
+nome da página de onde cada uma veio.
 
-Esta é a fonte. O que vier de maquete e divergir daqui está errado.
+Uma versão anterior deste documento foi escrita a partir dos mock-ups do
+agente de vendas e estava **errada**. O que ela dizia e o que é:
 
----
-
-## Uma correção, registrada de propósito
-
-A primeira versão deste documento foi escrita a partir de duas maquetes em
-HTML e errou o essencial:
-
-| eu havia escrito | o que o produto usa de verdade |
+| a versão de mock-up dizia | o catálogo mostra |
 |---|---|
-| navy `#1c2169` como cor da marca | **azul `#0A5BA8`** |
-| `#0a5ba8` é "do Sebrae" e não entra em lugar nenhum | é **a** cor da Missner |
-| Fraunces nos títulos | **Space Grotesk** |
-| Cookie cursiva na marca | **Space Grotesk 700**, sem cursiva |
-| raio único de 14px | **quatro** raios: 10, 14, 20 e 26 |
-| paleta com tema escuro completo | o produto **não tem** tema escuro |
-
-Maquete não é produto. Ficou registrado para ninguém reabrir a discussão com
-o arquivo errado na mão.
+| azul `#0A5BA8` | navy `#191961` |
+| Space Grotesk nos títulos | serifada itálica (Playfair Display) |
+| marca escrita em fonte | wordmark cursivo próprio, arquivo real |
+| dark mode | não existe; a marca é navy sobre claro |
 
 ---
 
-## 1. Cor
+## Cor
 
-```
---azul          #0A5BA8     a cor da marca
---azul-escuro   #003A6B     texto sobre claro, descritor da marca
---azul-claro    #EAF2FB     fundo de realce
---azul-linha    #CFE0F2     linha e texto secundário sobre azul
---superficie    #F4F7FB     fundo de tela
---branco        #fff        superfície de cartão
---borda         #E4E9F0     borda de 1px
---preto         #0F1720     texto principal
---cinza         #5A6676     texto secundário
---sucesso       #16794D     positivo
---erro          #B42318     negativo
---erro-bg       #FEF3F2     fundo do negativo
-```
+Medidas com `PIL`, amostrando a cor dominante de cada página.
 
-Apoios que aparecem no HTML: `#E7F4EE` e `#BFE3D0` (sucesso claro), `#FFF4E5`
-e `#B54708` (atenção), `#FDCFCB` (erro claro).
-
-**Não há tema escuro.** O produto no ar não implementa
-`prefers-color-scheme`. Se um dia for feito, é decisão nova, não resgate.
-
----
-
-## 2. Tipografia
-
-Duas famílias, uma folha do Google Fonts:
-
-```
-fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700
-                          &family=Space+Grotesk:wght@500;600;700
-```
-
-| papel | família |
-|---|---|
-| marca e títulos | **Space Grotesk** 500 · 600 · 700 |
-| corpo e interface | **Inter** 400 · 500 · 600 · 700 |
-| código, número cru | `ui-monospace` |
-
-Escala observada, em ordem de uso: **13px** domina a interface, depois 14, 15 e
-16; títulos em 22, 23, 28 e 30; marca em 52 na tela de entrada. Peso **600 é o
-padrão** da interface — 18 ocorrências contra 6 de 700 e 4 de 500.
-
-### A marca
-
-Um bloco de duas linhas, sempre junto:
-
-```
-Missner            Space Grotesk 700 · line-height 1
-AGENTE DE VENDA    caixa alta · 600 · espaçamento largo
-```
-
-| contexto | linha 1 | linha 2 |
+| token | valor | de onde |
 |---|---|---|
-| tela de entrada | 52px, `--azul`, `letter-spacing: -1.5px` | 15px, `--azul-escuro`, `letter-spacing: 7px` |
-| barra do topo | 23px, branco, `letter-spacing: -.5px` | 10px, `#CFE0F2`, `letter-spacing: 3.5px` |
+| `--navy` | `#191961` | capa e lombadas do catálogo |
+| `--navy-deep` | `#0e0e45` | derivado, para o estado pressionado |
+| `--navy-ink` | `#081d5e` | o navy do próprio wordmark |
+| `--peri` | `#4f5daa` | página "Um mix completo de produtos" |
+| `--mint` | `#a4d9d0` | página "É no gesto de quem cuida" |
+| `--mint-pale` | `#dcefe9` | derivado, fundo de aviso |
+| `--salmao` | `#ffc9b8` | o display sobre o peri |
 
-O contraste entre as duas linhas é o que faz a marca: a primeira é **apertada**
-(tracking negativo), a segunda é **espalhada** (até 7px). Uma sem a outra perde
-a assinatura.
-
-No nosso produto a segunda linha muda de texto — **AGENTE DE PROSPECÇÃO** — e
-mantém exatamente o mesmo tratamento.
-
-Grafia: **Missner**, com dois esses, como está no título e no bloco da marca.
-A infraestrutura usa `misner` e isso fica como está; o que o cliente lê é
-Missner.
-
----
-
-## 3. Acabamento
+Superfícies e texto, derivados para uma ferramenta de trabalho — o catálogo é
+peça impressa e não tem tabela nem formulário:
 
 ```
---r-sm   10px     controle: botão, campo
---r      14px     elemento médio
---r-lg   20px     cartão
---r-xl   26px     superfície grande
---sh     0 1px 2px rgba(16,23,32,.04), 0 8px 24px rgba(16,23,32,.06)
---sh-lg  0 16px 48px rgba(16,23,32,.16)
+--ice        #f2f4fa     fundo de tela
+--ice-deep   #e6eaf4     fundo recuado
+--superficie #ffffff
+--tinta      #15173a     texto principal
+--cinza      #5a5f80     texto secundário
+--borda      #e2e6f0     linha de 1px
+--ok      #1f6b5a sobre --ok-bg      #dcefe9
+--atencao #8a5a14 sobre --atencao-bg #f7e9d3
+--erro    #b3261e sobre --erro-bg    #fbe3e1
+--foco    #4f5daa
 ```
 
-Quatro raios, não um. A escala é deliberada e vem do produto: controle 10,
-médio 14, cartão 20, superfície 26.
+**Contraste medido, não julgado:** 23 pares de texto sobre fundo, nenhum
+reprovado. Os mais apertados são `atenção/atenção-bg` em 4,94 e `ok/ok-bg` em
+5,31, contra o mínimo de 4,5 que a WCAG pede para texto pequeno.
 
-Padrões medidos no HTML:
+**Não há tema escuro.** A marca é navy sobre claro, e o catálogo inteiro é
+assim. Inventar um tema escuro seria inventar identidade.
 
-- **cartão** — fundo branco, borda 1px `--borda`, raio `--r-lg`, sombra `--sh`,
-  respiro de 28px, 22px de distância entre cartões
-- **pílula** — `border-radius: 999px`, 4px por 11px, 11,5px, peso 600,
-  `letter-spacing: .2px`
-- **botão sobre azul** — `rgba(255,255,255,.14)` com borda
-  `rgba(255,255,255,.3)`, raio 10px, 8px por 14px, 13px, peso 600
-- **caixa de marcação** — 17px por 17px, `accent-color: var(--azul)`
-- **texto de apoio** — 16px, `--cinza`, com 14px acima e 30px abaixo
+## A marca
 
----
+O wordmark é o **arquivo de verdade da Missner**, não uma fonte parecida.
+Ele entra como máscara PNG (`web/marca.png`, 14 KB) e a cor vem de
+`currentColor`:
 
-## 4. No PDF
+```css
+.marca {
+  background-color: currentColor;
+  -webkit-mask: var(--marca) center / contain no-repeat;
+          mask: var(--marca) center / contain no-repeat;
+}
+```
 
-O dossiê usa a mesma cor, em milímetros:
+Um arquivo só serve nos dois usos — navy sobre claro, branco sobre navy.
+Nenhuma fonte cursiva do Google chega perto o suficiente para valer a troca.
 
-- faixa de cabeçalho em `--azul`, faixa fina em `--azul-escuro` abaixo
-- texto da faixa em branco, linha secundária em `--azul-linha`
-- título de seção com pílula, fundo `--azul-claro`, número em `--azul-escuro`
-- linha chave/valor com hairline `--borda`
-- rodapé em `--cinza`, marca à direita em `--azul-escuro`
+Tagline, do catálogo: **"Um toque de cuidado"**.
 
----
+## Tipografia
 
-## 5. Onde isto é aplicado
+| papel | família | de onde vem |
+|---|---|---|
+| display (h1) | **Playfair Display**, itálico 500 | a voz editorial do catálogo |
+| interface, corpo | **Montserrat** 400/500/600/700 | é a fonte do site da Missner, lida do CSS dele |
+| marca | o wordmark, imagem | arquivo da Missner |
 
-A interface do Agente de Prospecção é servida pelo n8n, no mesmo padrão do
-agente de vendas: HTML guardado em Data Table e devolvido por webhook. Então a
-identidade não é "inspirada" na do agente de vendas — é **a mesma**, servida do
-mesmo jeito, na mesma instância.
+Montserrat e não Poppins porque é a que a Missner já usa na web — medido em
+`missner.com.br/css/custom.css`, não escolhido por gosto. Playfair Display em
+itálico só nos títulos de tela: é o que dá ao catálogo o tom de cuidado, e em
+texto corrido cansaria.
 
-O que muda é só o descritor da marca e o conteúdo das telas.
+Números em `tabular-nums`. CNPJ e contagem desalinhados em coluna é o que faz
+uma planilha parecer amadora.
+
+## Acabamento
+
+| propriedade | valor |
+|---|---|
+| raio de superfície | 14px |
+| raio de controle | 8px |
+| pílula | 999px |
+| borda | 1px `--borda` |
+| sombra de superfície | `0 1px 3px rgba(14,14,69,.08)` |
+| respiro | `clamp(18px, 2.6vw, 28px)` |
+
+Dois raios, não cinco. Dois raios parecidos na mesma tela é sujeira que
+ninguém sabe nomear e todo mundo sente.
+
+## Movimento e foco
+
+Transição de `.15s` só em cor, fundo, borda e sombra; `translateY(1px)` no
+toque. `prefers-reduced-motion` zera tudo.
+
+O anel de foco de 2px em `--foco` **não sai**. É o único jeito de usar a
+ferramenta sem mouse, e some de todo projeto porque alguém acha feio.
+
+## Onde isto vive
+
+```
+prospeccao/web/estilo.css   tokens e base
+prospeccao/web/marca.png    o wordmark, em máscara
+prospeccao/web/app.html     a interface
+prospeccao/web/montar.py    junta os três numa página só
+```

@@ -37,6 +37,7 @@ JWT = (os.environ.get("N8N_JWT") or "").strip()
 SEGREDO = (os.environ.get("PONTE_TOKEN") or "").strip()
 
 TABELA_PEDIDOS = os.environ.get("N8N_TABELA_PEDIDOS", "7xKe4gdNqDX4SKEC")
+TABELA_ENTREGUES = os.environ.get("N8N_TABELA_ENTREGUES", "Eq3UO4lZqR7Ev2ML")
 WEBHOOK_GUARDAR = f"{N8N}/webhook/prospeccao-guardar"
 
 # Tipos MIME por formato, para o navegador do cliente saber o que recebeu.
@@ -197,12 +198,16 @@ def puxar(fila: Fila) -> int:
 # ────────────────────────────────────────────────── saída
 
 def guardar(pedido_id: str, n: int, formato: str, caminho: Path,
-            empresas: int) -> None:
+            empresas: int, repetidas: int = 0) -> None:
     if not SEGREDO:
         raise SemCredencial("PONTE_TOKEN não está no ambiente")
     corpo = {
         "token": SEGREDO, "pedido_id": pedido_id, "fatia": n,
         "formato": formato, "empresas": empresas,
+        # A tela mostra quantas já tinham ido para este cliente. Entregar 50
+        # caladamente parece defeito; dizer "50 repetidas" mostra que a
+        # pesquisa rodou e que o filtro está esgotando.
+        "repetidas": repetidas, "novas": max(0, empresas - repetidas),
         "filename": f"prospeccao-{pedido_id}-{n:03d}.{formato}",
         "ct": TIPOS.get(formato, "application/octet-stream"),
         "b64": base64.b64encode(caminho.read_bytes()).decode(),
@@ -216,6 +221,46 @@ def guardar(pedido_id: str, n: int, formato: str, caminho: Path,
         raise RuntimeError(f"n8n recusou: {str(resposta)[:200]}")
 
 
+def publicar_entregues(cliente: str, lote: str, cnpjs: list[str],
+                       quando: str) -> None:
+    """
+    Espelha no n8n quem foi entregue. A verdade continua no DuckDB da VM;
+    isto é só para a tela poder responder "essa empresa já foi para esse
+    cliente?" sem alcançar a VM, que não escuta porta nenhuma.
+
+    Falhar aqui NÃO desfaz a entrega: o espelho é conveniência, o registro
+    é que é irreversível.
+    """
+    if not cnpjs:
+        return
+    linhas = [{"cliente": cliente, "cnpj": c, "raiz": c[:8],
+               "lote": lote, "entregue_em": quando} for c in cnpjs]
+    for i in range(0, len(linhas), 100):
+        _api(f"data-tables/{TABELA_ENTREGUES}/rows", metodo="POST",
+             corpo={"data": linhas[i:i + 100]})
+
+
+def fechar_pedido(fila: Fila, pedido_id: str, linha_n8n: str | None) -> None:
+    """Leva o estado final do pedido de volta para a linha do n8n.
+
+    Sem isto o pedido fica 'em_curso' para sempre na tela, e ela segue
+    perguntando de 20 em 20 segundos por uma coisa que já acabou.
+    """
+    if not linha_n8n:
+        return
+    p = fila.db.execute("SELECT status, motivo FROM pedidos WHERE id=?",
+                        [pedido_id]).fetchone()
+    if not p or p["status"] in ("pendente", "executando"):
+        return
+    pendentes = fila.db.execute(
+        "SELECT COUNT(*) c FROM fatias "
+        "WHERE pedido_id=? AND status='pronto' AND entregue_em IS NULL",
+        [pedido_id]).fetchone()["c"]
+    if pendentes:                      # ainda há fatia pronta por entregar
+        return
+    marcar_pedido(linha_n8n, status=p["status"], motivo=p["motivo"] or "")
+
+
 def entregar(fila: Fila) -> int:
     """
     Manda as fatias prontas e ainda não entregues, e SÓ ENTÃO registra as
@@ -227,7 +272,8 @@ def entregar(fila: Fila) -> int:
     estrago irreversível deste sistema.
     """
     pendentes = fila.db.execute(
-        "SELECT f.pedido_id, f.n, f.arquivos, f.leads, p.cliente, p.filtro "
+        "SELECT f.pedido_id, f.n, f.arquivos, f.leads, f.repetidas, "
+        "       p.cliente, p.filtro, p.chave_idem "
         "FROM fatias f JOIN pedidos p ON p.id = f.pedido_id "
         "WHERE f.status='pronto' AND f.entregue_em IS NULL "
         "ORDER BY f.pedido_id, f.n").fetchall()
@@ -243,7 +289,8 @@ def entregar(fila: Fila) -> int:
                 p = Path(caminho)
                 if not p.exists():
                     raise FileNotFoundError(caminho)
-                guardar(pid, n, formato, p, f["leads"] or 0)
+                guardar(pid, n, formato, p, f["leads"] or 0,
+                        f["repetidas"] or 0)
         except Exception as e:
             _log(f"{pid}/{n} não entregue: {type(e).__name__}: {e}")
             continue
@@ -253,13 +300,21 @@ def entregar(fila: Fila) -> int:
         cnpjs = json.loads(fila.db.execute(
             "SELECT cnpjs FROM fatias WHERE pedido_id=? AND n=?",
             [pid, n]).fetchone()["cnpjs"])
+        lote = f"{pid}-{n}"
         novas = entregues.registrar(
             [{"cnpj": c, "cnpj_base": c[:8]} for c in cnpjs],
-            f"{pid}-{n}", f["filtro"] or "", cliente=cliente)
+            lote, f["filtro"] or "", cliente=cliente)
+        agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
         fila.db.execute(
             "UPDATE fatias SET entregue_em=? WHERE pedido_id=? AND n=?",
-            [datetime.now(timezone.utc).isoformat(timespec="seconds"), pid, n])
+            [agora, pid, n])
         fila.db.commit()
+        try:
+            publicar_entregues(cliente, lote, cnpjs, agora)
+        except Exception as e:
+            _log(f"{lote} entregue, mas o espelho no n8n falhou: "
+                 f"{type(e).__name__}: {e}")
+        fechar_pedido(fila, pid, f["chave_idem"])
         entregues_agora += 1
         _log(f"{pid}/{n} entregue · {len(arquivos)} formato(s) · "
              f"{novas} empresa(s) nova(s) no registro de {cliente}")

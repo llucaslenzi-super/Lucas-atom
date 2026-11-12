@@ -113,7 +113,8 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
     # sempre e o cliente nunca a receberia, nem nesta lista nem em nenhuma
     # futura. É o único estrago irreversível deste sistema.
 
-    fila.concluir_fatia(pid, n, leads=len(leads), requisicoes=req, cache_hits=hits,
+    fila.concluir_fatia(pid, n, leads=len(leads), repetidas=repetidas,
+                        requisicoes=req, cache_hits=hits,
                         custo=custo, apify_erro=apify_erro,
                         arquivos={k: str(v) for k, v in arquivos.items()})
     print(f"[{pid}/{n}] {len(leads)} leads ({repetidas} repetidas) · "

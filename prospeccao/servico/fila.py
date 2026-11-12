@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS fatias (
   cnpjs       TEXT NOT NULL,      -- congelado na criação, não recalculado
   status      TEXT NOT NULL,      -- pendente|executando|pronto|erro|cancelado
   leads       INTEGER DEFAULT 0,
+  repetidas   INTEGER DEFAULT 0,  -- já entregues antes a ESTE cliente
   requisicoes INTEGER DEFAULT 0,
   cache_hits  INTEGER DEFAULT 0,
   custo_usd   REAL,               -- NULL = não se sabe; 0 = foi de graça
@@ -103,7 +104,8 @@ class Fila:
         fica sem a coluna e o UPDATE falha.
         """
         tem = {c["name"] for c in self.db.execute("PRAGMA table_info(fatias)")}
-        for coluna, tipo in (("apify_erro", "TEXT"), ("entregue_em", "TEXT")):
+        for coluna, tipo in (("apify_erro", "TEXT"), ("entregue_em", "TEXT"),
+                             ("repetidas", "INTEGER DEFAULT 0")):
             if coluna not in tem:
                 self.db.execute(f"ALTER TABLE fatias ADD COLUMN {coluna} {tipo}")
         tem = {c["name"] for c in self.db.execute("PRAGMA table_info(pedidos)")}
@@ -199,15 +201,17 @@ class Fila:
 
     def concluir_fatia(self, pid: str, n: int, *, leads=0, requisicoes=0,
                        cache_hits=0, custo=None, arquivos=None, erro=None,
-                       apify_erro=None):
+                       apify_erro=None, repetidas=0):
         # custo=None é "não sei quanto custou", e é diferente de zero. Antes o
         # worker gravava 0.0 fixo e o campo era decoração.
         self.db.execute("""
-            UPDATE fatias SET status=?, leads=?, requisicoes=?, cache_hits=?,
-                   custo_usd=?, apify_erro=?, arquivos=?, erro=?, concluida_em=?
+            UPDATE fatias SET status=?, leads=?, repetidas=?, requisicoes=?,
+                   cache_hits=?, custo_usd=?, apify_erro=?, arquivos=?, erro=?,
+                   concluida_em=?
             WHERE pedido_id=? AND n=?""",
-            ("erro" if erro else "pronto", leads, requisicoes, cache_hits, custo,
-             apify_erro, json.dumps(arquivos or {}), erro, _agora(), pid, n))
+            ("erro" if erro else "pronto", leads, repetidas, requisicoes,
+             cache_hits, custo, apify_erro, json.dumps(arquivos or {}), erro,
+             _agora(), pid, n))
         # 'pronto' só quando TODAS as fatias deram certo. Antes esta contagem
         # ignorava as fatias em erro, então nove prontas e uma falhada viravam
         # um pedido 'pronto' — e o cliente recebia lista incompleta como

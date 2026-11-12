@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Missner · Agente de Prospecção</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&family=Playfair+Display:ital,wght@1,500;1,600&display=swap">
+<style>/*{{ESTILO}}*/</style>
+</head>
+<body>
+
+<!-- ══════════════ ENTRAR ══════════════ -->
+<section id="tela-entrar" class="porta">
+  <div class="porta-dentro">
+    <div style="text-align:center;margin-bottom:30px">
+      <span class="marca grande" style="color:var(--navy);margin:0 auto"></span>
+      <div class="chapa">Agente de Prospecção</div>
+    </div>
+    <form class="cartao" id="form-entrar" style="margin:0">
+      <div class="campo" style="margin-bottom:14px">
+        <label for="senha">Senha</label>
+        <input type="password" id="senha" autocomplete="current-password" required autofocus>
+      </div>
+      <button class="b b-primario" style="width:100%;justify-content:center" type="submit" id="b-entrar">Entrar</button>
+      <div id="erro-entrar" class="aviso aviso-erro" hidden></div>
+    </form>
+    <p class="assinatura" style="text-align:center">Um toque de cuidado</p>
+  </div>
+</section>
+
+<!-- ══════════════ APLICAÇÃO ══════════════ -->
+<section id="app" hidden>
+  <header class="barra-topo">
+    <div class="dentro">
+      <span class="marca pequena"></span>
+      <nav>
+        <button class="b-nav" data-ir="pesquisa">Nova pesquisa</button>
+        <button class="b-nav" data-ir="listas">Minhas listas</button>
+        <button class="b-nav" data-ir="entregues">Entregues</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="palco">
+
+    <!-- ─────── NOVA PESQUISA ─────── -->
+    <div id="pg-pesquisa">
+      <div class="passos" id="passos">
+        <div class="passo agora" data-p="1"><span class="bolinha">1</span><span class="rotulo">Origem</span></div>
+        <div class="traco"></div>
+        <div class="passo" data-p="2"><span class="bolinha">2</span><span class="rotulo">Critérios</span></div>
+        <div class="traco"></div>
+        <div class="passo" data-p="3"><span class="bolinha">3</span><span class="rotulo">Confirmar</span></div>
+      </div>
+
+      <!-- passo 1 -->
+      <div id="p1">
+        <div class="cartao">
+          <div class="eyebrow">Passo 1</div>
+          <h1>De onde vêm as empresas?</h1>
+          <p class="apoio">Duas portas. A primeira procura na base da Receita
+            Federal; a segunda parte de uma lista de CNPJs que você já tem.</p>
+          <div class="linha">
+            <button class="escolha" id="op-filtro" type="button">
+              <h2>Filtro</h2>
+              <p class="dica" style="margin:8px 0 0;line-height:1.55">
+                Estado, cidade e até 2 CNAEs. A base tem 28,4 milhões de
+                empresas ativas no país.</p>
+            </button>
+            <button class="escolha" id="op-planilha" type="button">
+              <h2>Planilha de CNPJs</h2>
+              <p class="dica" style="margin:8px 0 0;line-height:1.55">
+                Arquivo .csv ou .xlsx com uma coluna de CNPJ. Aqui o CNAE é
+                resultado, não critério — e não existe teto de 2.</p>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- passo 2 -->
+      <div id="p2" hidden>
+        <div class="cartao">
+          <div class="eyebrow">Passo 2</div>
+          <h1 id="t2">Onde procurar</h1>
+          <p class="apoio" id="s2"></p>
+
+          <div class="campo">
+            <label for="cliente">Para qual cliente é esta lista?</label>
+            <input id="cliente" required placeholder="nome do cliente" autocomplete="off">
+            <span class="dica">Empresa entregue a este cliente não volta numa
+              lista futura dele — mas pode ir para outro cliente.</span>
+          </div>
+
+          <div id="bloco-filtro">
+            <div class="linha">
+              <div class="campo">
+                <label for="estados">Estados</label>
+                <input id="estados" placeholder="SC, PR" autocomplete="off">
+                <span class="dica">Siglas, separadas por vírgula.</span>
+              </div>
+              <div class="campo">
+                <label for="cidade">Cidade <span class="dica">· opcional</span></label>
+                <input id="cidade" placeholder="Blumenau" autocomplete="off">
+              </div>
+            </div>
+            <div class="campo">
+              <label for="cnaes">CNAE <span class="dica" id="conta-cnae">· 0 de 2</span></label>
+              <input id="cnaes" placeholder="13 para a divisão têxtil, ou 1322300 para o código exato" autocomplete="off">
+              <span class="dica">Dois CNAEs no máximo. O teto existe porque
+                cada empresa custa uma consulta, e dois códigos já cobrem um
+                setor inteiro.</span>
+            </div>
+          </div>
+
+          <div id="bloco-planilha" hidden>
+            <div class="campo">
+              <label for="arquivo">Planilha de CNPJs</label>
+              <input type="file" id="arquivo" accept=".csv,.xlsx,.xlsm">
+              <span class="dica">A coluna de CNPJ é reconhecida sozinha. CNPJ
+                com dígito verificador errado é descartado, e eu digo quantos.</span>
+            </div>
+            <div class="aviso aviso-info">
+              Por aqui <strong>não existe teto de 2 CNAEs</strong>: o CNAE é o
+              que você vai descobrir sobre cada empresa, não o que você pediu.
+            </div>
+          </div>
+
+          <div class="linha" style="margin-top:18px">
+            <div class="campo">
+              <label for="quantas">Quantas empresas</label>
+              <input type="number" id="quantas" value="100" min="100" max="10000" step="100">
+              <span class="dica">Entregue em listas de 100. 300 viram três listas.</span>
+            </div>
+            <div class="campo">
+              <label for="apify">Buscar contatos na internet</label>
+              <select id="apify">
+                <option value="nao">Não — só o cadastro da Receita</option>
+                <option value="sim">Sim — Google Maps e Instagram (custa)</option>
+              </select>
+              <span class="dica">Com teto de US$ 5 por lista.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- passo 3 -->
+      <div id="p3" hidden>
+        <div class="cartao">
+          <div class="eyebrow">Passo 3</div>
+          <h1>Confirmar a entrega</h1>
+          <table class="tab" id="resumo"></table>
+          <div class="aviso aviso-atencao">
+            <strong>Isto não volta atrás.</strong> As empresas desta entrega
+            entram no registro do cliente e não aparecem mais em listas futuras
+            dele. Se alguma já tiver sido entregue antes, ela vem assim mesmo,
+            <span class="pil pil-marca">já entregue</span> na planilha, com a
+            data da lista em que ele a recebeu — para você ver que a pesquisa
+            rodou e que o filtro está esgotando.
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="b-texto" id="b-voltar" hidden>&larr; Voltar</button>
+        <button class="b b-primario" id="b-avancar" style="margin-left:auto" hidden>Avançar</button>
+      </div>
+      <div id="erro-pedido" class="aviso aviso-erro" hidden></div>
+    </div>
+
+    <!-- ─────── MINHAS LISTAS ─────── -->
+    <div id="pg-listas" hidden>
+      <h1>Minhas listas</h1>
+      <p class="apoio">O botão de baixar nasce em cada lista assim que ela fica
+        pronta. Não precisa esperar as outras.</p>
+      <div id="corpo-listas"></div>
+    </div>
+
+    <!-- ─────── ENTREGUES ─────── -->
+    <div id="pg-entregues" hidden>
+      <h1>Empresas entregues</h1>
+      <p class="apoio">Para saber se uma empresa já foi para um cliente, e em
+        qual lista ele a recebeu.</p>
+      <div class="cartao">
+        <div class="campo">
+          <label for="busca-cnpj">CNPJ</label>
+          <input id="busca-cnpj" placeholder="84.429.695/0001-11" inputmode="numeric" autocomplete="off">
+          <span class="dica">Pode ser só a raiz, os 8 primeiros dígitos.</span>
+        </div>
+        <button class="b b-fantasma" id="b-buscar" type="button">Procurar</button>
+        <div id="res-entregues" style="margin-top:20px"></div>
+      </div>
+    </div>
+
+  </main>
+</section>
+
+<script>
+(function () {
+  "use strict";
+
+  var BASE = location.pathname.replace(/\/[^\/]*\/?$/, "");
+  var API = BASE + "/prospeccao-api";
+  var BAIXAR = BASE + "/prospeccao-baixar?c=";
+  var E = function (id) { return document.getElementById(id); };
+  var estado = { passo: 1, origem: null, senha: "", enviado: false };
+  // Quantas entradas de histórico esta tela empilhou. Enquanto houver
+  // alguma, o Voltar da tela é history.back() — assim ele e o botão do
+  // navegador são literalmente a mesma ação, e não duas que se cruzam.
+  var profundidade = 0;
+  function empilha(st, hash) { history.pushState(st, "", hash); profundidade++; }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // ───────── rascunho: sair no meio não perde nada ─────────
+  var CAMPOS = ["cliente", "estados", "cidade", "cnaes", "quantas", "apify"];
+  function guardar() {
+    try {
+      var r = { origem: estado.origem };
+      CAMPOS.forEach(function (id) { r[id] = E(id).value; });
+      sessionStorage.setItem("missner.rascunho", JSON.stringify(r));
+    } catch (e) { /* aba privada: segue sem rascunho */ }
+  }
+  function recuperar() {
+    try {
+      var r = JSON.parse(sessionStorage.getItem("missner.rascunho") || "{}");
+      CAMPOS.forEach(function (id) { if (r[id]) E(id).value = r[id]; });
+      if (r.origem) estado.origem = r.origem;
+    } catch (e) {}
+    contaCnae();
+  }
+
+  // ───────── navegação ─────────
+  function pagina(nome, semHistorico) {
+    ["pesquisa", "listas", "entregues"].forEach(function (p) {
+      E("pg-" + p).hidden = (p !== nome);
+    });
+    document.querySelectorAll("[data-ir]").forEach(function (b) {
+      if (b.classList.contains("b-nav")) {
+        if (b.dataset.ir === nome) b.setAttribute("aria-current", "page");
+        else b.removeAttribute("aria-current");
+      }
+    });
+    if (!semHistorico) empilha({ pg: nome }, "#" + nome);
+    clearTimeout(relogio);
+    if (nome === "listas") carregarListas();
+    window.scrollTo(0, 0);
+  }
+
+  function passo(n, semHistorico) {
+    estado.passo = n;
+    [1, 2, 3].forEach(function (i) { E("p" + i).hidden = (i !== n); });
+    document.querySelectorAll("#passos .passo").forEach(function (el) {
+      var i = +el.dataset.p;
+      el.classList.toggle("agora", i === n);
+      el.classList.toggle("feito", i < n);
+    });
+    document.querySelectorAll("#passos .traco").forEach(function (el, i) {
+      el.classList.toggle("feito", i + 1 < n);
+    });
+    E("b-voltar").hidden = (n === 1);
+    E("b-avancar").hidden = (n === 1);
+    E("b-avancar").disabled = false;
+    E("b-avancar").textContent = (n === 3) ? "Entregar" : "Avançar";
+    E("erro-pedido").hidden = true;
+    if (!semHistorico) empilha({ pg: "pesquisa", passo: n }, "#passo" + n);
+    window.scrollTo(0, 0);
+  }
+
+  // O voltar do navegador faz o mesmo que o Voltar da tela. Depois de
+  // confirmar ele vai para Minhas listas e NUNCA de volta ao formulário:
+  // pedido duplicado por engano custa dinheiro e queima empresas.
+  window.addEventListener("popstate", function (ev) {
+    var s = ev.state || {};
+    profundidade = Math.max(0, profundidade - 1);
+    if (estado.enviado) {
+      // Pedido já enviado: o voltar leva a Minhas listas e nunca de volta
+      // ao formulário. Pedido duplicado por engano custa dinheiro e
+      // queima empresas do cliente.
+      empilha({ pg: "listas" }, "#listas");
+      pagina("listas", true); return;
+    }
+    if (s.pg && s.pg !== "pesquisa") { pagina(s.pg, true); return; }
+    pagina("pesquisa", true);
+    passo(s.passo || 1, true);
+  });
+
+  // ───────── conversa com o n8n ─────────
+  function chamar(acao, dados) {
+    return fetch(API, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ acao: acao, senha: estado.senha }, dados))
+    }).then(function (r) {
+      return r.text().then(function (t) {
+        var j = {};
+        try { j = JSON.parse(t); } catch (e) { throw new Error("resposta inesperada do servidor"); }
+        if (!r.ok || j.erro) throw new Error(j.erro || ("falha " + r.status));
+        return j;
+      });
+    }, function () { throw new Error("sem conexão com o servidor"); });
+  }
+
+  // ───────── entrar ─────────
+  E("form-entrar").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var b = E("b-entrar");
+    if (b.disabled) return;
+    b.disabled = true; b.textContent = "Entrando…";
+    estado.senha = E("senha").value;
+    chamar("entrar", {}).then(function () {
+      try { sessionStorage.setItem("missner.senha", estado.senha); } catch (e) {}
+      abrirApp();
+    }).catch(function (e) {
+      b.disabled = false; b.textContent = "Entrar";
+      var el = E("erro-entrar");
+      el.textContent = (e && e.message) || "Senha recusada.";
+      el.hidden = false;
+    });
+  });
+
+  function abrirApp() {
+    E("tela-entrar").hidden = true;
+    E("app").hidden = false;
+    recuperar();
+    var h = (location.hash || "").replace("#", "");
+    if (h === "listas" || h === "entregues") pagina(h, true);
+    else { pagina("pesquisa", true); passo(1, true); }
+  }
+
+  // ───────── passo 1 ─────────
+  E("op-filtro").addEventListener("click", function () { estado.origem = "filtro"; abrePasso2(); });
+  E("op-planilha").addEventListener("click", function () { estado.origem = "planilha"; abrePasso2(); });
+
+  function abrePasso2() {
+    var f = estado.origem === "filtro";
+    E("op-filtro").setAttribute("aria-pressed", String(f));
+    E("op-planilha").setAttribute("aria-pressed", String(!f));
+    E("bloco-filtro").hidden = !f;
+    E("bloco-planilha").hidden = f;
+    E("t2").textContent = f ? "Onde procurar" : "A sua planilha";
+    E("s2").textContent = f
+      ? "Estado e CNAE definem o alvo. A cidade é opcional."
+      : "Cada CNPJ da planilha é consultado, e o cadastro completo volta na lista.";
+    guardar();
+    passo(2);
+  }
+
+  // ───────── teto de 2 CNAEs: regra visível, não erro depois ─────────
+  function listaDe(v) {
+    return (v || "").split(/[,;]/).map(function (s) { return s.trim(); })
+                    .filter(function (s) { return s; });
+  }
+  function contaCnae() {
+    var n = listaDe(E("cnaes").value).length;
+    var el = E("conta-cnae");
+    el.textContent = "· " + n + " de 2";
+    el.style.color = n > 2 ? "var(--erro)" : "";
+    el.style.fontWeight = n > 2 ? "700" : "";
+  }
+  E("cnaes").addEventListener("input", function () { contaCnae(); guardar(); });
+  CAMPOS.forEach(function (id) {
+    E(id).addEventListener("input", guardar);
+    E(id).addEventListener("change", guardar);
+  });
+
+  // ───────── passo 3 ─────────
+  function linha(k, v) {
+    return "<tr><td class='chave'>" + k + "</td><td class='valor'>" + v + "</td></tr>";
+  }
+  function montaResumo() {
+    var q = Math.max(1, +E("quantas").value || 100);
+    var listas = Math.ceil(q / 100);
+    var h = "";
+    h += linha("Cliente", esc(E("cliente").value) || "—");
+    if (estado.origem === "filtro") {
+      h += linha("Estados", esc(E("estados").value.toUpperCase()) || "todos");
+      if (E("cidade").value) h += linha("Cidade", esc(E("cidade").value));
+      h += linha("CNAE", esc(E("cnaes").value) || "todos");
+    } else {
+      var f = E("arquivo").files[0];
+      h += linha("Planilha", f ? esc(f.name) : "nenhuma escolhida");
+    }
+    h += linha("Empresas", "<span class='num'>" + q + "</span>");
+    h += linha("Listas de 100", "<span class='num'>" + listas + "</span>");
+    h += linha("Contatos na internet",
+               E("apify").value === "sim" ? "sim, teto de US$ 5 por lista" : "não");
+    E("resumo").innerHTML = h;
+    E("b-avancar").textContent = "Entregar " + q + (q === 1 ? " empresa" : " empresas");
+  }
+
+  // ───────── avançar e voltar ─────────
+  E("b-voltar").addEventListener("click", function () {
+    if (profundidade > 0) history.back();
+    else passo(estado.passo === 3 ? 2 : 1, true);
+  });
+
+  E("b-avancar").addEventListener("click", function () {
+    E("erro-pedido").hidden = true;
+    if (estado.passo === 2) {
+      if (!E("cliente").value.trim()) return falha("Diga para qual cliente é a lista.");
+      if (estado.origem === "filtro") {
+        if (listaDe(E("cnaes").value).length > 2)
+          return falha("No máximo 2 CNAEs. Para mais, faça duas pesquisas.");
+        if (!E("estados").value.trim() && !E("cnaes").value.trim())
+          return falha("Diga ao menos o estado ou o CNAE.");
+      } else if (!E("arquivo").files[0]) {
+        return falha("Escolha a planilha de CNPJs.");
+      }
+      passo(3);
+      return montaResumo();   // depois do passo: passo() reescreve o botão
+    }
+    enviar();
+  });
+
+  function falha(msg) {
+    var el = E("erro-pedido");
+    el.textContent = msg;
+    el.hidden = false;
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  // ───────── enviar ─────────
+  function enviar() {
+    var b = E("b-avancar");
+    if (b.disabled) return;              // dois cliques rápidos = um pedido
+    b.disabled = true;
+    b.textContent = "Enviando…";
+
+    var corpo = {
+      cliente: E("cliente").value.trim(),
+      total: Math.max(1, +E("quantas").value || 100),
+      com_apify: E("apify").value === "sim" ? "sim" : "nao"
+    };
+    var pronto = Promise.resolve();
+
+    if (estado.origem === "filtro") {
+      corpo.filtro = JSON.stringify({
+        ufs: listaDe(E("estados").value).map(function (s) { return s.toUpperCase(); }),
+        cnaes: listaDe(E("cnaes").value),
+        municipios: listaDe(E("cidade").value)
+      });
+    } else {
+      var f = E("arquivo").files[0];
+      pronto = new Promise(function (ok, nok) {
+        var fr = new FileReader();
+        fr.onload = function () {
+          corpo.planilha_nome = f.name;
+          corpo.planilha_b64 = String(fr.result).split(",")[1] || "";
+          ok();
+        };
+        fr.onerror = function () { nok(new Error("não consegui ler o arquivo")); };
+        fr.readAsDataURL(f);
+      });
+    }
+
+    pronto.then(function () { return chamar("criar", corpo); })
+      .then(function () {
+        estado.enviado = true;
+        try { sessionStorage.removeItem("missner.rascunho"); } catch (e) {}
+        empilha({ pg: "listas" }, "#listas");
+        pagina("listas", true);
+      })
+      .catch(function (e) {
+        b.disabled = false;
+        b.textContent = "Entregar";
+        falha((e && e.message) || "não consegui enviar o pedido.");
+      });
+  }
+
+  // ───────── minhas listas ─────────
+  var relogio = null;
+  function carregarListas() {
+    var alvo = E("corpo-listas");
+    if (!alvo.dataset.carregado) {
+      alvo.innerHTML = "<div class='cartao'>"
+        + "<div class='esq' style='width:38%'></div>"
+        + "<div class='esq' style='width:64%;margin-top:14px'></div>"
+        + "<div class='esq' style='width:26%;margin-top:14px'></div></div>";
+    }
+    chamar("pedidos", {}).then(function (r) {
+      alvo.dataset.carregado = "1";
+      desenhaListas(r.pedidos || []);
+      // Só volta a perguntar enquanto houver coisa em curso: cada chamada é
+      // uma execução no n8n, e tela parada não deve gastar execução.
+      var andando = (r.pedidos || []).some(function (p) {
+        return p.status === "pendente" || p.status === "em_curso";
+      });
+      clearTimeout(relogio);
+      if (andando && !E("pg-listas").hidden) relogio = setTimeout(carregarListas, 20000);
+    }).catch(function (e) {
+      alvo.innerHTML = "<div class='cartao'><div class='aviso aviso-erro' style='margin-top:0'>"
+        + esc((e && e.message) || "não consegui carregar") + "</div>"
+        + "<button class='b b-fantasma b-pequeno' style='margin-top:14px' id='b-retentar'>Tentar de novo</button></div>";
+      var rb = E("b-retentar");
+      if (rb) rb.onclick = carregarListas;
+    });
+  }
+
+  function pilula(s) {
+    var m = {
+      pronto:   ["pil-ok", "pronta"],
+      em_curso: ["pil-curso", "em curso"],
+      pendente: ["pil-fila", "na fila"],
+      parcial:  ["pil-curso", "parcial"],
+      erro:     ["pil-erro", "com erro"],
+      cancelado:["pil-fila", "cancelado"]
+    }[s] || ["pil-fila", s || "—"];
+    return "<span class='pil " + m[0] + "'>" + m[1] + "</span>";
+  }
+
+  function descreve(p) {
+    if (p.planilha_nome) return "A partir de " + esc(p.planilha_nome);
+    try {
+      var f = JSON.parse(p.filtro || "{}");
+      var t = [];
+      if (f.ufs && f.ufs.length) t.push(f.ufs.join(", "));
+      if (f.municipios && f.municipios.length) t.push(f.municipios.join(", "));
+      if (f.cnaes && f.cnaes.length) t.push("CNAE " + f.cnaes.join(" e "));
+      return t.join(" · ") || "sem filtro";
+    } catch (e) { return "—"; }
+  }
+
+  function quando(s) {
+    if (!s) return "";
+    var d = new Date(s);
+    if (isNaN(d)) return esc(s);
+    var z = function (n) { return (n < 10 ? "0" : "") + n; };
+    return z(d.getDate()) + "/" + z(d.getMonth() + 1) + " " + z(d.getHours()) + ":" + z(d.getMinutes());
+  }
+
+  function desenhaListas(ps) {
+    var alvo = E("corpo-listas");
+    if (!ps.length) {
+      alvo.innerHTML = "<div class='cartao' style='text-align:center;padding:52px 28px'>"
+        + "<h2>Nenhum pedido ainda</h2>"
+        + "<p class='apoio' style='margin:10px auto 22px'>Quando você pedir a"
+        + " primeira lista, ela aparece aqui com o botão de baixar.</p>"
+        + "<button class='b b-primario' data-ir='pesquisa'>Nova pesquisa</button></div>";
+      liga();
+      return;
+    }
+    var h = "";
+    ps.forEach(function (p) {
+      h += "<div class='cartao'>";
+      h += "<div style='display:flex;align-items:center;gap:12px;flex-wrap:wrap'>";
+      h += "<h2>" + esc(p.cliente || "sem cliente") + "</h2>" + pilula(p.status);
+      h += "<span class='dica num' style='margin-left:auto'>" + quando(p.criado_em) + "</span></div>";
+      h += "<p class='dica' style='margin:8px 0 14px'>" + descreve(p)
+         + " · <span class='num'>" + (p.total || 0) + "</span> empresas</p>";
+      if (p.motivo) h += "<div class='aviso aviso-erro' style='margin-top:0'>" + esc(p.motivo) + "</div>";
+
+      var ls = p.listas || [];
+      if (ls.length) {
+        var repet = ls.reduce(function (a, L) { return a + (+L.repetidas || 0); }, 0);
+        if (repet > 0) {
+          h += "<div class='aviso aviso-info' style='margin:0 0 14px'>"
+             + "<span class='num'>" + repet + "</span> empresa(s) desta entrega já"
+             + " tinham ido para este cliente antes. Elas vêm assim mesmo, marcadas"
+             + " na planilha com a data da lista anterior — sinal de que o filtro"
+             + " está esgotando.</div>";
+        }
+        h += "<div style='display:flex;gap:9px;flex-wrap:wrap'>";
+        ls.forEach(function (L) {
+          h += "<a class='b b-fantasma b-pequeno' href='" + BAIXAR + encodeURIComponent(L.chave) + "'>"
+             + "&darr; " + esc(String(L.formato).toUpperCase()) + " · lista " + (+L.fatia)
+             + " <span class='num'>(" + (+L.empresas || 0) + ")</span></a>";
+        });
+        h += "</div>";
+      } else if (p.status === "em_curso" || p.status === "pendente") {
+        h += "<div class='dica'>Gerando. Cada lista de 100 leva uns dois minutos"
+           + " — o botão de baixar aparece aqui sozinho, sem recarregar a página.</div>";
+      } else if (p.status === "pronto") {
+        h += "<div class='dica'>As listas deste pedido já foram baixadas e"
+           + " apagadas do servidor. Peça de novo para gerar outras.</div>";
+      }
+      h += "</div>";
+    });
+    alvo.innerHTML = h;
+    liga();
+  }
+
+  // ───────── entregues ─────────
+  E("b-buscar").addEventListener("click", buscarEntregue);
+  E("busca-cnpj").addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") { ev.preventDefault(); buscarEntregue(); }
+  });
+
+  function buscarEntregue() {
+    var cnpj = E("busca-cnpj").value.replace(/\D/g, "");
+    var alvo = E("res-entregues");
+    if (cnpj.length < 8) {
+      alvo.innerHTML = "<div class='aviso aviso-erro' style='margin-top:0'>"
+        + "Informe ao menos os 8 primeiros dígitos.</div>";
+      return;
+    }
+    alvo.innerHTML = "<div class='esq' style='width:60%'></div>";
+    chamar("entregues", { cnpj: cnpj }).then(function (r) {
+      var a = r.achados || [];
+      if (!a.length) {
+        alvo.innerHTML = "<div class='aviso aviso-ok' style='margin-top:0'>"
+          + "Esta empresa ainda não foi entregue a nenhum cliente.</div>";
+        return;
+      }
+      var h = "<table class='tab'><tr><th>Cliente</th><th>Quando</th><th>Lista</th></tr>";
+      a.forEach(function (x) {
+        h += "<tr><td style='font-weight:600'>" + esc(x.cliente) + "</td>"
+           + "<td class='num'>" + quando(x.entregue_em) + "</td>"
+           + "<td class='num'>" + esc(x.lote) + "</td></tr>";
+      });
+      alvo.innerHTML = h + "</table>";
+    }).catch(function (e) {
+      alvo.innerHTML = "<div class='aviso aviso-erro' style='margin-top:0'>"
+        + esc(e.message) + "</div>";
+    });
+  }
+
+  // ───────── menu ─────────
+  function liga() {
+    document.querySelectorAll("[data-ir]").forEach(function (b) {
+      b.onclick = function () {
+        var p = b.dataset.ir;
+        if (p !== "pesquisa") return pagina(p);
+        if (estado.enviado) return novaPesquisa();
+        pagina(p); passo(estado.passo);
+      };
+    });
+  }
+
+  // Pedido já enviado e a pessoa clica em Nova pesquisa: começa limpa, no
+  // passo 1. Deixar o filtro anterior preenchido convida ao pedido repetido,
+  // que aqui queima empresas do cliente. O nome do cliente fica, porque
+  // normalmente a próxima lista é para o mesmo.
+  function novaPesquisa() {
+    estado.enviado = false;
+    estado.origem = null;
+    ["estados", "cidade", "cnaes"].forEach(function (id) { E(id).value = ""; });
+    E("quantas").value = "100";
+    E("apify").value = "nao";
+    try { E("arquivo").value = ""; } catch (e) {}
+    E("op-filtro").removeAttribute("aria-pressed");
+    E("op-planilha").removeAttribute("aria-pressed");
+    contaCnae();
+    guardar();
+    pagina("pesquisa");
+    passo(1);
+  }
+  liga();
+
+  // sessão ainda viva nesta aba
+  try {
+    var s = sessionStorage.getItem("missner.senha");
+    if (s) { estado.senha = s; abrirApp(); }
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
