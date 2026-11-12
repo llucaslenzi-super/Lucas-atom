@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS fatias (
   leads       INTEGER DEFAULT 0,
   requisicoes INTEGER DEFAULT 0,
   cache_hits  INTEGER DEFAULT 0,
-  custo_usd   REAL DEFAULT 0,
+  custo_usd   REAL,               -- NULL = não se sabe; 0 = foi de graça
+  apify_erro  TEXT,               -- enriquecimento falhou ou foi pulado
   arquivos    TEXT,
   erro        TEXT,
   iniciada_em TEXT,
@@ -91,7 +92,19 @@ class Fila:
         self.db = sqlite3.connect(str(self.arquivo), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(ESQUEMA)
+        self._migrar()
         self.db.commit()
+
+    def _migrar(self) -> None:
+        """
+        Coluna nova em base que já existe. CREATE TABLE IF NOT EXISTS não
+        altera tabela criada antes, então sem isto a fila de uma VM em uso
+        fica sem a coluna e o UPDATE falha.
+        """
+        tem = {c["name"] for c in self.db.execute("PRAGMA table_info(fatias)")}
+        for coluna, tipo in (("apify_erro", "TEXT"), ("entregue_em", "TEXT")):
+            if coluna not in tem:
+                self.db.execute(f"ALTER TABLE fatias ADD COLUMN {coluna} {tipo}")
 
     # ---------------------------------------------------------- criar
     def criar(self, cnpjs: list[str], *, filtro="", formatos=("xlsx",), blocos=None,
@@ -159,13 +172,16 @@ class Fila:
         return r
 
     def concluir_fatia(self, pid: str, n: int, *, leads=0, requisicoes=0,
-                       cache_hits=0, custo=0.0, arquivos=None, erro=None):
+                       cache_hits=0, custo=None, arquivos=None, erro=None,
+                       apify_erro=None):
+        # custo=None é "não sei quanto custou", e é diferente de zero. Antes o
+        # worker gravava 0.0 fixo e o campo era decoração.
         self.db.execute("""
             UPDATE fatias SET status=?, leads=?, requisicoes=?, cache_hits=?,
-                   custo_usd=?, arquivos=?, erro=?, concluida_em=?
+                   custo_usd=?, apify_erro=?, arquivos=?, erro=?, concluida_em=?
             WHERE pedido_id=? AND n=?""",
             ("erro" if erro else "pronto", leads, requisicoes, cache_hits, custo,
-             json.dumps(arquivos or {}), erro, _agora(), pid, n))
+             apify_erro, json.dumps(arquivos or {}), erro, _agora(), pid, n))
         # 'pronto' só quando TODAS as fatias deram certo. Antes esta contagem
         # ignorava as fatias em erro, então nove prontas e uma falhada viravam
         # um pedido 'pronto' — e o cliente recebia lista incompleta como
@@ -223,11 +239,19 @@ class Fila:
             "leads": sum(f["leads"] for f in fs),
             "requisicoes": sum(f["requisicoes"] for f in fs),
             "cache_hits": sum(f["cache_hits"] for f in fs),
-            "custo_usd": round(sum(f["custo_usd"] for f in fs), 4),
+            # None em qualquer fatia contamina a soma: se não se sabe o custo
+            # de uma, não se sabe o do pedido. Somar tratando None como zero
+            # inventaria um número menor que o real.
+            "custo_usd": (None if any(f["custo_usd"] is None
+                                      for f in fs if f["status"] == "pronto")
+                          else round(sum(f["custo_usd"] or 0 for f in fs), 4)),
+            "apify_erros": [f["apify_erro"] for f in fs if f["apify_erro"]],
             "eta_seg": round(pend * 1.05),
             "criado_em": p["criado_em"], "concluido_em": p["concluido_em"],
             "fatias": [{"n": f["n"], "status": f["status"], "leads": f["leads"],
                         "arquivos": json.loads(f["arquivos"] or "{}"),
+                        "custo_usd": f["custo_usd"],
+                        "apify_erro": f["apify_erro"],
                         "erro": f["erro"]} for f in fs],
         }
 

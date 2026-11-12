@@ -51,12 +51,23 @@ def _token() -> str:
     return t
 
 
-def _post(caminho: str, corpo: dict, timeout=900) -> list[dict]:
+def _post(caminho: str, corpo: dict, timeout=900,
+          teto_usd: float | None = None) -> list[dict]:
     """
     Roda um ator e devolve os itens do dataset.
     Usa run-sync-get-dataset-items: o Apify segura a conexão até terminar.
+
+    O teto vai como PARÂMETRO DE EXECUÇÃO, não dentro do corpo. Dentro do
+    corpo só funciona se aquele ator específico souber ler o campo — e era
+    exatamente o que acontecia: o Maps tinha teto e o Instagram e o LinkedIn
+    rodavam soltos, porque ninguém passou o campo para eles. Aqui o teto vale
+    para os três, e para qualquer ator que entre depois.
     """
-    url = f"{API}/acts/{caminho}/run-sync-get-dataset-items?token={_token()}"
+    params = {"token": _token()}
+    if teto_usd:
+        params["maxTotalChargeUsd"] = f"{float(teto_usd):.4f}"
+    url = (f"{API}/acts/{caminho}/run-sync-get-dataset-items?"
+           + urllib.parse.urlencode(params))
     req = urllib.request.Request(
         url,
         data=json.dumps(corpo).encode(),
@@ -80,6 +91,33 @@ def _post(caminho: str, corpo: dict, timeout=900) -> list[dict]:
     return []
 
 
+def custo_do_ultimo_run(caminho: str) -> float | None:
+    """
+    Quanto o último run deste ator custou, em dólar.
+
+    `run-sync-get-dataset-items` devolve só os itens do dataset: não há como
+    saber o custo pela resposta. Então perguntamos pelo último run do ator.
+
+    Pressuposto, explícito: o worker é único (flock em worker.lock), então o
+    último run deste ator com este token é o nosso. Se um dia houver dois
+    workers, isto passa a ser aproximação e precisa do runId de verdade.
+
+    Devolve None quando não consegue ler — e None não é zero. Gravar zero
+    seria afirmar que foi de graça.
+    """
+    url = (f"{API}/acts/{caminho}/runs?"
+           + urllib.parse.urlencode({"token": _token(), "limit": 1, "desc": "true"}))
+    try:
+        with urllib.request.urlopen(url, timeout=30) as r:
+            itens = json.loads(r.read().decode()).get("data", {}).get("items", [])
+        if not itens:
+            return None
+        v = itens[0].get("usageTotalUsd")
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+
 # ───────────────────────────────────────────────── Google Maps
 
 def maps(termos: list[str], pais="Brazil", por_busca=10,
@@ -99,8 +137,9 @@ def maps(termos: list[str], pais="Brazil", por_busca=10,
         "language": "pt-BR",
     }
     if teto_usd:
-        corpo["maxTotalChargeUsd"] = teto_usd      # teto duro por run
-    return _post(ATOR_MAPS, corpo)
+        # O Maps também lê o campo no corpo; manter os dois não custa nada.
+        corpo["maxTotalChargeUsd"] = teto_usd
+    return _post(ATOR_MAPS, corpo, teto_usd=teto_usd)
 
 
 def de_maps(item: dict) -> dict:
@@ -134,12 +173,12 @@ def _handle(url_ou_handle: str | None) -> str | None:
     return s.lstrip("@") or None
 
 
-def instagram(handles: list[str]) -> list[dict]:
+def instagram(handles: list[str], teto_usd: float | None = None) -> list[dict]:
     """SEMPRE pelo handle. Nunca por palavra-chave."""
     limpos = [h for h in (_handle(x) for x in handles) if h]
     if not limpos:
         return []
-    return _post(ATOR_INSTAGRAM, {"usernames": limpos})
+    return _post(ATOR_INSTAGRAM, {"usernames": limpos}, teto_usd=teto_usd)
 
 
 def de_instagram(item: dict) -> dict:
@@ -161,10 +200,11 @@ CARGOS_COMPRAS = [
 
 
 def linkedin(empresas: list[str], cargos: list[str] | None = None,
-             locais=("Brazil",), por_empresa=2, teto=50) -> list[dict]:
+             locais=("Brazil",), por_empresa=2, teto=50,
+             teto_usd: float | None = None) -> list[dict]:
     if not empresas:
         return []
-    return _post(ATOR_LINKEDIN, {
+    return _post(ATOR_LINKEDIN, teto_usd=teto_usd, corpo={
         "companies": empresas,
         "jobTitles": list(cargos or CARGOS_COMPRAS),
         "locations": list(locais),
@@ -263,21 +303,51 @@ def enriquecer_lote(leads: list[dict], usar_maps=True, usar_ig=True,
                     usar_li=False, pais="Brazil", teto_usd=5.0) -> dict:
     """
     Roda a camada Apify sobre um lote de leads já enriquecidos pelo EmpresAqui.
-    Altera `leads` no lugar. Devolve o resumo do que casou.
-    """
-    resumo = {}
-    nomes = [l.get("razao_social") for l in leads if l.get("razao_social")]
+    Altera `leads` no lugar. Devolve o resumo do que casou e o CUSTO REAL.
 
-    if usar_maps and nomes:
-        itens = maps(nomes, pais=pais, teto_usd=teto_usd)
+    O teto é do LOTE, não de cada ator. Cada ator recebe o que sobrou do teto,
+    e quando não sobra nada o ator é pulado e isso fica registrado. Antes o
+    teto ia só para o Maps, e Instagram e LinkedIn rodavam sem limite nenhum —
+    o LinkedIn com "Full + email search", que é o mais caro dos três.
+
+    `custo_usd` pode vir None: o Apify não devolve custo na mesma chamada, e
+    se a leitura falhar, None é a resposta honesta. Zero seria afirmar que
+    foi de graça.
+    """
+    resumo = {"custo_usd": 0.0, "pulados": []}
+    nomes = [l.get("razao_social") for l in leads if l.get("razao_social")]
+    gasto_desconhecido = False
+
+    def restante():
+        return None if teto_usd is None else max(0.0, teto_usd - resumo["custo_usd"])
+
+    def cobrar(ator: str):
+        nonlocal gasto_desconhecido
+        c = custo_do_ultimo_run(ator)
+        if c is None:
+            gasto_desconhecido = True
+        else:
+            resumo["custo_usd"] = round(resumo["custo_usd"] + c, 4)
+
+    def tem_verba(ator: str) -> bool:
+        r = restante()
+        if r is not None and r <= 0:
+            resumo["pulados"].append(ator)
+            return False
+        return True
+
+    if usar_maps and nomes and tem_verba("maps"):
+        itens = maps(nomes, pais=pais, teto_usd=restante())
+        cobrar(ATOR_MAPS)
         resumo["maps_itens"] = len(itens)
         resumo["maps_casados"] = casar(leads, itens, de_maps, "title")
 
     if usar_ig:
         # handle do EmpresAqui OU do Maps — nunca busca por palavra-chave
         handles = [h for l in leads for h in (l.get("instagram") or [])]
-        if handles:
-            itens = instagram(handles)
+        if handles and tem_verba("instagram"):
+            itens = instagram(handles, teto_usd=restante())
+            cobrar(ATOR_INSTAGRAM)
             resumo["ig_itens"] = len(itens)
             mapa = {(_handle(i.get("username")) or "").lower(): i for i in itens}
             n = 0
@@ -290,9 +360,14 @@ def enriquecer_lote(leads: list[dict], usar_maps=True, usar_ig=True,
                         break
             resumo["ig_casados"] = n
 
-    if usar_li and nomes:
-        itens = linkedin(nomes)
+    if usar_li and nomes and tem_verba("linkedin"):
+        itens = linkedin(nomes, teto_usd=restante())
+        cobrar(ATOR_LINKEDIN)
         resumo["li_itens"] = len(itens)
         resumo["li_casados"] = casar(leads, itens, de_linkedin, "companyName")
 
+    if gasto_desconhecido:
+        # Parte do custo não pôde ser lida: o número deixa de ser confiável e
+        # é melhor dizer que não se sabe.
+        resumo["custo_usd"] = None
     return resumo

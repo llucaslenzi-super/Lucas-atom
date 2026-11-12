@@ -701,3 +701,110 @@ def test_consulta_pega_a_fracao_de_servico_e_carga_a_grande(monkeypatch):
     # a verificação pede a grande, apesar de ser leitura
     fonte = inspect.getsource(carregar.verificar)
     assert "servico=False" in fonte
+
+
+# ───────────────── Apify: teto nos três, e custo que não mente
+
+def test_teto_do_apify_vale_para_os_tres_atores(monkeypatch):
+    """
+    O teto ia só para o Google Maps, dentro do corpo da requisição, e só
+    funcionava porque aquele ator lê o campo. Instagram e LinkedIn rodavam
+    SEM limite — e o LinkedIn em "Full + email search", o mais caro dos três.
+    """
+    from cnpj import apify
+
+    chamadas = []
+    monkeypatch.setattr(apify, "_token", lambda: "t")
+    monkeypatch.setattr(apify, "_post",
+                        lambda caminho, corpo, timeout=900, teto_usd=None:
+                        chamadas.append((caminho, teto_usd)) or [])
+
+    apify.maps(["ALFA"], teto_usd=3.0)
+    apify.instagram(["@alfa"], teto_usd=3.0)
+    apify.linkedin(["ALFA"], teto_usd=3.0)
+
+    assert len(chamadas) == 3
+    for caminho, teto in chamadas:
+        assert teto == 3.0, f"{caminho} rodou sem teto"
+
+
+def test_teto_e_do_lote_e_para_quando_acaba(monkeypatch):
+    """
+    O teto é do lote, não de cada ator: três atores com teto de US$ 5 cada
+    gastariam 15. Aqui o segundo recebe o que sobrou, e quando não sobra o
+    ator é pulado e isso fica registrado no pedido.
+    """
+    from cnpj import apify
+
+    monkeypatch.setattr(apify, "_token", lambda: "t")
+    monkeypatch.setattr(apify, "_post",
+                        lambda *a, **k: [])
+    # o Maps gasta o teto inteiro
+    monkeypatch.setattr(apify, "custo_do_ultimo_run", lambda ator: 5.0)
+
+    leads = [{"razao_social": "ALFA LTDA", "instagram": ["@alfa"]}]
+    r = apify.enriquecer_lote(leads, usar_maps=True, usar_ig=True,
+                              usar_li=True, teto_usd=5.0)
+
+    assert r["custo_usd"] == 5.0
+    assert "instagram" in r["pulados"], r
+    assert "linkedin" in r["pulados"], r
+
+
+def test_custo_desconhecido_vira_none_nao_zero(monkeypatch, tmp_path):
+    """
+    Zero afirma que foi de graça. Quando o Apify não devolve o custo, a
+    resposta honesta é "não sei" — e ela tem de atravessar até o resumo do
+    pedido sem virar zero no caminho.
+    """
+    from cnpj import apify
+    from servico.fila import Fila
+
+    monkeypatch.setattr(apify, "_token", lambda: "t")
+    monkeypatch.setattr(apify, "_post", lambda *a, **k: [])
+    monkeypatch.setattr(apify, "custo_do_ultimo_run", lambda ator: None)
+
+    r = apify.enriquecer_lote([{"razao_social": "ALFA"}], usar_ig=False,
+                              teto_usd=5.0)
+    assert r["custo_usd"] is None
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    pedido = f.criar([f"{i:014d}" for i in range(100)], filtro="t")
+    fatia = f.proxima_fatia()
+    f.concluir_fatia(pedido["id"], fatia["n"], leads=100, custo=None,
+                     apify_erro="SemToken: faltou token")
+    resumo = f.pedido(pedido["id"])
+    assert resumo["custo_usd"] is None, "custo desconhecido virou número"
+    assert resumo["apify_erros"] == ["SemToken: faltou token"]
+
+
+def test_post_do_apify_poe_o_teto_na_url(monkeypatch):
+    """
+    Este teste existe porque a auditoria de sabotagem passou sem pegar: o
+    teste acima substitui `_post`, então o lugar ONDE o teto entra na URL
+    nunca era exercitado. Aqui o `_post` de verdade roda, e só a chamada HTTP
+    é interceptada.
+    """
+    import io
+    import urllib.request
+    from cnpj import apify
+
+    vistas = []
+    monkeypatch.setattr(apify, "_token", lambda: "tok")
+
+    class _Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def falso_urlopen(req, timeout=None):
+        vistas.append(req.full_url if hasattr(req, "full_url") else str(req))
+        return _Resp(b"[]")
+
+    monkeypatch.setattr(urllib.request, "urlopen", falso_urlopen)
+
+    apify._post("ator~x", {"a": 1}, teto_usd=4.25)
+    assert "maxTotalChargeUsd=4.2500" in vistas[0], vistas[0]
+
+    vistas.clear()
+    apify._post("ator~x", {"a": 1})
+    assert "maxTotalChargeUsd" not in vistas[0], "teto apareceu sem ser pedido"

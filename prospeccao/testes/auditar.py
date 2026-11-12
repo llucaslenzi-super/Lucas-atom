@@ -72,6 +72,11 @@ SABOTAGENS += [
      '    if f.get("porte"):', "    if True:"),
     ("teto de memória igual para carga e serviço", "carregar",
      "FRACAO_SERVICO = 0.12", "FRACAO_SERVICO = 0.45"),
+    ("teto do Apify volta a valer só no corpo do Maps", "apify",
+     '    if teto_usd:\n        params["maxTotalChargeUsd"]',
+     '    if False:\n        params["maxTotalChargeUsd"]'),
+    ("custo desconhecido virando zero", "apify",
+     '        resumo["custo_usd"] = None', '        resumo["custo_usd"] = 0.0'),
 ]
 
 

@@ -67,14 +67,25 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
         time.sleep(PAUSA_TOKEN)
         return
 
-    custo = 0.0
+    custo, apify_erro = None, None
     if p["com_apify"] and leads:
         try:
             from cnpj import apify
             resumo = apify.enriquecer_lote(leads, usar_maps=True, usar_ig=True,
                                            usar_li=False, teto_usd=p["teto_usd"])
+            custo = resumo.get("custo_usd")
+            if resumo.get("pulados"):
+                # Teto batido no meio: parte do enriquecimento não rodou, e
+                # isso tem de aparecer no pedido, não só no log.
+                apify_erro = ("teto de US$ "
+                              f"{p['teto_usd']} batido; não rodou: "
+                              + ", ".join(resumo["pulados"]))
             print(f"[{pid}/{n}] apify: {resumo}", flush=True)
         except Exception as e:
+            # Antes isto era engolido com um print: a fatia ficava pronta sem
+            # enriquecimento nenhum e nada no pedido dizia isso. Lead sem
+            # contato parecia empresa sem contato.
+            apify_erro = f"{type(e).__name__}: {e}"[:200]
             print(f"[{pid}/{n}] apify falhou (seguindo sem): {e}", flush=True)
 
     agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -92,9 +103,12 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
     entregues.registrar(leads, f"{pid}-{n}", p["filtro"] or "")
 
     fila.concluir_fatia(pid, n, leads=len(leads), requisicoes=req, cache_hits=hits,
-                        custo=custo, arquivos={k: str(v) for k, v in arquivos.items()})
+                        custo=custo, apify_erro=apify_erro,
+                        arquivos={k: str(v) for k, v in arquivos.items()})
     print(f"[{pid}/{n}] {len(leads)} leads · {req} req · {hits} cache · "
-          f"{time.time()-t0:.0f}s", flush=True)
+          f"US$ {custo if custo is not None else '?'} · "
+          f"{time.time()-t0:.0f}s" + (f" · APIFY: {apify_erro}" if apify_erro else ""),
+          flush=True)
 
 
 def main() -> int:
