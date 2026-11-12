@@ -48,6 +48,8 @@ APIFY_TOKEN=$(meta apify-token)
 API_TOKEN=$(meta api-token)
 CNPJ_DADOS=$RAIZ/dados
 CNPJ_SAIDA=$RAIZ/saida
+N8N_JWT=$(meta n8n-jwt)
+PONTE_TOKEN=$(meta ponte-token)
 EOF
 chmod 600 /etc/$SLUG.env
 # Restaura o umask: sem isto ele vaza para o resto do script e os arquivos de
@@ -121,6 +123,20 @@ ExecStart=$RAIZ/venv/bin/python servico/worker.py
 WantedBy=multi-user.target
 EOF
 
+cat > /etc/systemd/system/$SLUG-ponte.service <<EOF
+[Unit]
+Description=Misner · ponte entre a VM e o n8n
+After=network-online.target
+Wants=network-online.target
+[Service]
+Restart=always
+RestartSec=10
+$(_comum)
+ExecStart=$RAIZ/venv/bin/python servico/ponte.py
+[Install]
+WantedBy=multi-user.target
+EOF
+
 cat > /etc/systemd/system/$SLUG-base.timer <<EOF
 [Unit]
 Description=Misner · atualização mensal da base
@@ -175,7 +191,7 @@ WantedBy=timers.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now $SLUG-api $SLUG-worker
+systemctl enable --now $SLUG-api $SLUG-worker $SLUG-ponte
 systemctl enable $SLUG-base.timer
 systemctl enable --now $SLUG-copia.timer
 systemctl enable --now $SLUG-limpeza.timer

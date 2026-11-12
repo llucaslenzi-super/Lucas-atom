@@ -91,6 +91,14 @@ SABOTAGENS += [
     ("marcação nunca marca nada", "entregues",
      'l["ja_entregue"] = "SIM" if quando else ""',
      'l["ja_entregue"] = ""'),
+    # A ponte. Marcar entregue sem a entrega ter acontecido e o unico
+    # estrago irreversivel deste sistema.
+    ("ponte marca entregue antes de o n8n aceitar", "servico/ponte",
+     "        except Exception as e:\n            _log(f\"{pid}/{n} não entregue",
+     "        except Exception as e:\n            pass\n        if False:\n            _log(f\"{pid}/{n} não entregue"),
+    ("ponte reenvia a fatia já entregue", "servico/ponte",
+     "WHERE f.status='pronto' AND f.entregue_em IS NULL ",
+     "WHERE f.status='pronto' "),
 ]
 
 

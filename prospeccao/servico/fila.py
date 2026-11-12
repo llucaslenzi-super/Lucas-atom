@@ -128,8 +128,18 @@ class Fila:
         pid = "p_" + uuid.uuid4().hex[:12]
         fatias = [cnpjs[i:i + TAMANHO_LISTA]
                   for i in range(0, len(cnpjs), TAMANHO_LISTA)] or [[]]
+        # Colunas NOMEADAS, não posicionais. Com VALUES posicional, acrescentar
+        # uma coluna no meio da tabela desloca tudo em silêncio: foi o que
+        # aconteceu quando `cliente` entrou — o cliente passou a receber o
+        # carimbo de data e o criado_em ficou nulo, sem erro nenhum.
+        #
+        # E a migração de uma base em uso acrescenta a coluna no FIM, então a
+        # ordem física depende de quando o banco nasceu. Nomear resolve os dois.
         self.db.execute(
-            "INSERT INTO pedidos VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO pedidos (id, chave_idem, filtro, total_pedido, "
+            "  tamanho_fatia, formatos, blocos, com_apify, teto_usd, status, "
+            "  motivo, base_competencia, criado_em, concluido_em, cliente) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (pid, chave_idem, filtro, len(cnpjs), TAMANHO_LISTA,
              json.dumps(list(formatos)), json.dumps(blocos), int(com_apify),
              teto_usd, "pendente", None, base_competencia, _agora(), None,

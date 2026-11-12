@@ -105,14 +105,18 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
     arquivos = escrever(leads, destino, json.loads(p["formatos"]),
                         json.loads(p["blocos"] or "null"))
 
-    # Só AGORA as empresas entram no registro: fatia que falha não marca ninguém.
-    novas = entregues.registrar(leads, f"{pid}-{n}", p["filtro"] or "",
-                                cliente=cliente)
+    # O worker NÃO registra mais. Quem registra é a ponte, depois de o
+    # arquivo chegar ao n8n — ver servico/ponte.py:entregar().
+    #
+    # Registrar aqui marcava a empresa no momento em que o ARQUIVO era
+    # gerado. Se a entrega falhasse depois, a empresa ficava marcada para
+    # sempre e o cliente nunca a receberia, nem nesta lista nem em nenhuma
+    # futura. É o único estrago irreversível deste sistema.
 
     fila.concluir_fatia(pid, n, leads=len(leads), requisicoes=req, cache_hits=hits,
                         custo=custo, apify_erro=apify_erro,
                         arquivos={k: str(v) for k, v in arquivos.items()})
-    print(f"[{pid}/{n}] {len(leads)} leads ({novas} novas, {repetidas} repetidas) · "
+    print(f"[{pid}/{n}] {len(leads)} leads ({repetidas} repetidas) · "
           f"{req} req · {hits} cache · "
           f"US$ {custo if custo is not None else '?'} · "
           f"{time.time()-t0:.0f}s" + (f" · APIFY: {apify_erro}" if apify_erro else ""),

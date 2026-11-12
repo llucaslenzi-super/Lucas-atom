@@ -1146,3 +1146,129 @@ def test_marcar_antes_de_registrar_senao_tudo_vira_repetido(tmp_path, monkeypatc
     de_novo = [{"cnpj": f"{i:014d}", "cnpj_base": f"{i:08d}"} for i in range(5)]
     assert entregues.marcar(de_novo, "acme") == 5
     assert all(l["ja_entregue"] == "SIM" for l in de_novo)
+
+
+# ───────────────────────── a ponte
+
+def _fatia_pronta(tmp_path, fila, cliente="acme", formatos=("xlsx",)):
+    """Um pedido com uma fatia pronta e os arquivos em disco."""
+    cnpjs = [f"{i:014d}" for i in range(3)]
+    r = fila.criar(cnpjs, filtro="teste", cliente=cliente, formatos=formatos)
+    fatia = fila.proxima_fatia()
+    leads = [{"cnpj": c, "cnpj_base": c[:8], "razao_social": f"E {c}"}
+             for c in cnpjs]
+    feitos = exportar.escrever(leads, tmp_path / "saida" / r["id"] / "fatia-001",
+                               formatos)
+    fila.concluir_fatia(r["id"], fatia["n"], leads=len(leads),
+                        arquivos={k: str(v) for k, v in feitos.items()})
+    return r["id"], cnpjs
+
+
+def test_entrega_que_falha_nao_marca_ninguem(tmp_path, monkeypatch):
+    """
+    O estrago irreversível deste sistema, num teste.
+
+    Registrar na GERAÇÃO do arquivo, como era antes, marcava a empresa mesmo
+    quando a entrega falhava depois. A empresa ficava marcada para sempre e o
+    cliente nunca a receberia — nem naquela lista, nem em nenhuma futura.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    fila = Fila(tmp_path / "jobs.sqlite")
+    pid, cnpjs = _fatia_pronta(tmp_path, fila)
+
+    # o n8n recusa
+    def recusa(*a, **k):
+        raise RuntimeError("n8n recusou: 401")
+    monkeypatch.setattr(ponte, "guardar", recusa)
+
+    assert ponte.entregar(fila) == 0
+    assert entregues.ja_entregues(cliente="acme") == set(), (
+        "empresa marcada como entregue sem a entrega ter acontecido")
+    naoentregue = fila.db.execute(
+        "SELECT entregue_em FROM fatias WHERE pedido_id=?", [pid]).fetchone()
+    assert naoentregue["entregue_em"] is None
+
+    # e quando o n8n aceita, aí sim
+    monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
+    assert ponte.entregar(fila) == 1
+    assert entregues.ja_entregues(cliente="acme") == {c[:8] for c in cnpjs}
+
+
+def test_ponte_nao_entrega_a_mesma_fatia_duas_vezes(tmp_path, monkeypatch):
+    """
+    A ponte roda a cada minuto. Sem a marca de entregue, ela reenviaria a
+    mesma fatia para sempre e o cliente receberia a mesma lista toda vez.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    fila = Fila(tmp_path / "jobs.sqlite")
+    _fatia_pronta(tmp_path, fila)
+
+    envios = []
+    monkeypatch.setattr(ponte, "guardar",
+                        lambda *a, **k: envios.append(a[:3]))
+
+    assert ponte.entregar(fila) == 1
+    assert ponte.entregar(fila) == 0, "reenviou a fatia já entregue"
+    assert ponte.entregar(fila) == 0
+    assert len(envios) == 1
+
+
+def test_ponte_recusa_planilha_sem_cnpj_e_diz_o_motivo(tmp_path, monkeypatch):
+    """
+    Pedido recusado tem de voltar com motivo. Sem isso o cliente fica
+    esperando uma lista que nunca vem e ninguém sabe por quê.
+    """
+    import base64
+    from servico import ponte
+    from servico.fila import Fila
+
+    monkeypatch.setattr(ponte.config, "DADOS", tmp_path)
+    fila = Fila(tmp_path / "jobs.sqlite")
+
+    vazia = base64.b64encode(b"cnpj\n123\nabc\n").decode()
+    linha = {"id": 7, "cliente": "acme", "planilha_b64": vazia,
+             "planilha_nome": "ruim.csv", "formatos": "xlsx"}
+
+    marcados = []
+    monkeypatch.setattr(ponte, "pedidos_pendentes", lambda: [linha])
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda lid, **c: marcados.append((lid, c)))
+
+    assert ponte.puxar(fila) == 0
+    assert marcados and marcados[0][0] == 7
+    assert marcados[0][1]["status"] == "erro"
+    assert "CNPJ" in marcados[0][1]["motivo"]
+
+
+def test_ponte_usa_o_id_da_linha_como_chave_de_idempotencia(tmp_path, monkeypatch):
+    """
+    Se a ponte morrer entre criar o pedido e marcar a linha como em curso, a
+    volta seguinte encontra a mesma linha pendente. Sem a chave, criaria um
+    segundo pedido e o cliente pagaria a lista duas vezes.
+    """
+    import base64
+    from servico import ponte
+    from servico.fila import Fila
+
+    monkeypatch.setattr(ponte.config, "DADOS", tmp_path)
+    fila = Fila(tmp_path / "jobs.sqlite")
+    boa = base64.b64encode(b"cnpj\n84429695000111\n86950110000130\n").decode()
+    linha = {"id": 42, "cliente": "acme", "planilha_b64": boa,
+             "planilha_nome": "ok.csv", "formatos": "xlsx"}
+
+    primeiro = ponte.criar_local(fila, linha)
+    segundo = ponte.criar_local(fila, linha)          # a ponte morreu e voltou
+    assert segundo.get("repetido") is True
+    assert segundo["id"] == primeiro["id"], "criou um segundo pedido"
+    assert fila.db.execute("SELECT COUNT(*) c FROM pedidos").fetchone()["c"] == 1
