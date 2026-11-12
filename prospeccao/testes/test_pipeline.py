@@ -1754,3 +1754,124 @@ def test_pedido_pronto_com_lista_por_entregar_nao_fecha_no_n8n(
     monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
     assert ponte.entregar(fila) == 1
     assert len(marcas) == 1 and marcas[0]["status"] == "pronto"
+
+
+# ───────────────── andamento: o número que a barra de progresso desenha
+
+def test_planilha_ignora_o_total_pedido_e_usa_o_arquivo_inteiro(
+        tmp_path, monkeypatch):
+    """
+    Quem manda uma planilha quer as empresas da planilha, todas. O campo
+    "quantas empresas" da tela não se aplica — e o back-end tem de ignorá-lo
+    mesmo que a linha venha com um número qualquer.
+    """
+    import base64
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import config
+
+    monkeypatch.setattr(config, "DADOS", tmp_path)
+    fila = Fila(tmp_path / "jobs.sqlite")
+
+    # 250 CNPJs válidos no arquivo, mas a linha pede 100
+    from cnpj.empresaqui import dv_valido
+    cnpjs, i = [], 0
+    while len(cnpjs) < 250:
+        c = f"{i:012d}"
+        for d1 in range(10):
+            for d2 in range(10):
+                if dv_valido(c + f"{d1}{d2}"):
+                    cnpjs.append(c + f"{d1}{d2}")
+        i += 1
+    cnpjs = cnpjs[:250]
+    csv = "cnpj\n" + "\n".join(cnpjs)
+
+    r = ponte.criar_local(fila, {
+        "id": "42", "cliente": "acme", "total": 100, "formatos": "csv",
+        "planilha_nome": "lista.csv",
+        "planilha_b64": base64.b64encode(csv.encode()).decode()})
+
+    assert r["total"] == 250, (
+        f"pegou {r['total']} empresas; a planilha tinha 250 e o total pedido "
+        "não manda aqui")
+    assert r["fatias"] == 3, "250 empresas têm de virar 3 listas de 100, 100 e 50"
+
+
+def test_andamento_aparece_antes_de_a_lista_ficar_pronta(tmp_path, monkeypatch):
+    """
+    O número que sustenta a barra de progresso, medido onde ele nasce: dentro
+    do worker. Testar só `fila.andamento` seria testar o relógio e não quem dá
+    corda — a sabotagem que apaga a gravação no worker passava assim.
+
+    E a unidade importa: `processadas` é EMPRESA CONSULTADA, não lead
+    produzido. Aqui um dos CNPJs não devolve nada, então leads < processadas,
+    e a barra tem de contar as consultadas.
+    """
+    from servico import worker
+    from servico.fila import Fila
+    from cnpj import config, entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(config, "SAIDA", tmp_path / "saida")
+
+    cnpjs = [f"{i + 60000000000000:014d}" for i in range(25)]
+
+    class Resposta:
+        def __init__(self, cnpj, achou):
+            self.do_cache, self.http = False, (200 if achou else 404)
+            self.dados = {"cnpj": cnpj} if achou else None
+
+    class ApiFalsa:
+        def consultar_lote(self, lote):
+            # cinco não existem na fonte: leads sai 20, consultadas 25
+            return [Resposta(c, i >= 5) for i, c in enumerate(lote)]
+
+    monkeypatch.setattr(worker, "achatar",
+                        lambda d: [{"cnpj": d["cnpj"], "cnpj_base": d["cnpj"][:8]}])
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    r = fila.criar(cnpjs, filtro="t", cliente="acme", formatos=("csv",),
+                   com_apify=False)
+    assert fila.progresso(r["id"]) == {"andadas": 0, "prontas": 0, "listas": 1}
+
+    worker.processar(fila, fila.proxima_fatia(), ApiFalsa())
+
+    p = fila.progresso(r["id"])
+    assert p["prontas"] == 1
+    assert p["andadas"] == 25, (
+        f"a barra contaria {p['andadas']} de 25; o worker não gravou o "
+        "andamento, ou a soma está lendo leads em vez de consultadas")
+    f = fila.db.execute("SELECT leads, processadas FROM fatias "
+                        "WHERE pedido_id=?", [r["id"]]).fetchone()
+    assert f["leads"] == 20 and f["processadas"] == 25
+
+
+def test_ponte_empurra_o_andamento_so_de_pedido_em_curso(tmp_path, monkeypatch):
+    """
+    Em repouso a ponte não pode gerar tráfego: o pulso é de 15 em 15
+    segundos, e um pedido já terminado não tem andamento a contar.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    enviados = []
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda linha, **c: enviados.append((linha, c)))
+
+    r = fila.criar([f"{i + 50000000000000:014d}" for i in range(30)],
+                   filtro="t", cliente="acme", formatos=("csv",),
+                   chave_idem="11")
+    f = fila.proxima_fatia()
+    fila.andamento(r["id"], f["n"], 12)
+
+    assert ponte.reportar_progresso(fila) == 1
+    assert enviados[0][0] == "11"
+    assert enviados[0][1]["processadas"] == 12
+    assert enviados[0][1]["listas"] == 1
+
+    enviados.clear()
+    fila.concluir_fatia(r["id"], f["n"], leads=30, arquivos={"csv": "x"})
+    assert ponte.reportar_progresso(fila) == 0, (
+        "pedido terminado ainda gera pulso; em repouso tem de ser zero")
+    assert enviados == []

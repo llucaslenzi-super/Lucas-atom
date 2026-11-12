@@ -49,7 +49,7 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
     p = fila.db.execute("SELECT * FROM pedidos WHERE id=?", [pid]).fetchone()
     t0 = time.time()
 
-    leads, req, hits = [], 0, 0
+    leads, req, hits, feitas = [], 0, 0, 0
     try:
         for r in api.consultar_lote(cnpjs):
             if r.do_cache:
@@ -58,6 +58,12 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
                 req += 1
             if r.http == 200 and r.dados:
                 leads += achatar(r.dados)
+            # De dez em dez, e não a cada uma: é um UPDATE no SQLite, e a
+            # tela não enxerga diferença menor que isso. Sem este número a
+            # pessoa fica dois minutos olhando "na fila" sem sinal de vida.
+            feitas += 1
+            if feitas % 10 == 0 or feitas == len(cnpjs):
+                fila.andamento(pid, n, feitas)
     except TokenInvalido as e:
         # A fatia volta para a fila e o worker ESPERA. Sair faria o systemd
         # reiniciar em laço quente e esconder o motivo.

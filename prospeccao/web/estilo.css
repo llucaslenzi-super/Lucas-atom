@@ -337,3 +337,33 @@ h2 {
 .porta-dentro { width: 100%; max-width: 380px; }
 .porta .marca { display: block; }
 .porta .chapa { text-align: center; }
+
+/* ---------- barra de progresso ---------- */
+/* Determinada quando a VM já disse quantas empresas andou; indeterminada
+   enquanto ninguém começou — fingir uma fração que não existe é pior que
+   assumir que não se sabe. */
+.barra {
+  height: 7px;
+  border-radius: var(--r-pil);
+  background: var(--ice-deep);
+  overflow: hidden;
+  margin: 4px 0 10px;
+}
+.barra > i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pil);
+  background: linear-gradient(90deg, var(--peri), var(--mint));
+  transition: width .6s ease;
+}
+.barra.indefinida > i {
+  width: 38%;
+  animation: vaievem 1.5s ease-in-out infinite;
+}
+@keyframes vaievem {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .barra.indefinida > i { animation: none; width: 100%; opacity: .45; }
+}

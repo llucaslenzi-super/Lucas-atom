@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS fatias (
   status      TEXT NOT NULL,      -- pendente|executando|pronto|erro|cancelado
   leads       INTEGER DEFAULT 0,
   repetidas   INTEGER DEFAULT 0,  -- já entregues antes a ESTE cliente
+  processadas INTEGER DEFAULT 0,  -- quantas já foram consultadas, ao vivo
   requisicoes INTEGER DEFAULT 0,
   cache_hits  INTEGER DEFAULT 0,
   custo_usd   REAL,               -- NULL = não se sabe; 0 = foi de graça
@@ -105,7 +106,8 @@ class Fila:
         """
         tem = {c["name"] for c in self.db.execute("PRAGMA table_info(fatias)")}
         for coluna, tipo in (("apify_erro", "TEXT"), ("entregue_em", "TEXT"),
-                             ("repetidas", "INTEGER DEFAULT 0")):
+                             ("repetidas", "INTEGER DEFAULT 0"),
+                             ("processadas", "INTEGER DEFAULT 0")):
             if coluna not in tem:
                 self.db.execute(f"ALTER TABLE fatias ADD COLUMN {coluna} {tipo}")
         tem = {c["name"] for c in self.db.execute("PRAGMA table_info(pedidos)")}
@@ -199,6 +201,27 @@ class Fila:
             self.db.commit()
         return r
 
+    def andamento(self, pid: str, n: int, feitas: int) -> None:
+        """
+        Quantas empresas desta fatia já foram consultadas. É o único número
+        que existe enquanto a lista ainda não ficou pronta — sem ele a tela
+        só teria "na fila" e silêncio por dois minutos.
+        """
+        self.db.execute(
+            "UPDATE fatias SET processadas=? WHERE pedido_id=? AND n=?",
+            [feitas, pid, n])
+        self.db.commit()
+
+    def progresso(self, pid: str) -> dict:
+        """Soma do pedido: empresas andadas, listas prontas, listas no total."""
+        r = self.db.execute(
+            "SELECT COALESCE(SUM(processadas), 0) andadas,"
+            "       SUM(status='pronto') prontas,"
+            "       COUNT(*) listas "
+            "FROM fatias WHERE pedido_id=?", [pid]).fetchone()
+        return {"andadas": r["andadas"] or 0, "prontas": r["prontas"] or 0,
+                "listas": r["listas"] or 0}
+
     def concluir_fatia(self, pid: str, n: int, *, leads=0, requisicoes=0,
                        cache_hits=0, custo=None, arquivos=None, erro=None,
                        apify_erro=None, repetidas=0):
@@ -206,8 +229,8 @@ class Fila:
         # worker gravava 0.0 fixo e o campo era decoração.
         self.db.execute("""
             UPDATE fatias SET status=?, leads=?, repetidas=?, requisicoes=?,
-                   cache_hits=?, custo_usd=?, apify_erro=?, arquivos=?, erro=?,
-                   concluida_em=?
+                   cache_hits=?, custo_usd=?, apify_erro=?, arquivos=?,
+                   erro=?, concluida_em=?
             WHERE pedido_id=? AND n=?""",
             ("erro" if erro else "pronto", leads, repetidas, requisicoes,
              cache_hits, custo, apify_erro, json.dumps(arquivos or {}), erro,

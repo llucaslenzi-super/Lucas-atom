@@ -122,6 +122,7 @@
               <span class="dica">A coluna de CNPJ é reconhecida sozinha. CNPJ
                 com dígito verificador errado é descartado, e eu digo quantos.</span>
             </div>
+            <div id="previa" class="aviso aviso-ok" style="margin:0 0 18px" hidden></div>
             <div class="aviso aviso-info">
               Por aqui <strong>não existe teto de 2 CNAEs</strong>: o CNAE é o
               que você vai descobrir sobre cada empresa, não o que você pediu.
@@ -129,7 +130,7 @@
           </div>
 
           <div class="linha" style="margin-top:18px">
-            <div class="campo">
+            <div class="campo" id="campo-quantas">
               <label for="quantas">Quantas empresas</label>
               <input type="number" id="quantas" value="100" min="100" max="10000" step="100">
               <span class="dica">Entregue em listas de 100. 300 viram três listas.</span>
@@ -344,6 +345,9 @@
     E("op-planilha").setAttribute("aria-pressed", String(!f));
     E("bloco-filtro").hidden = !f;
     E("bloco-planilha").hidden = f;
+    // Numa planilha, quem diz quantas empresas é o arquivo. Perguntar o
+    // número seria pedir uma coisa que o back-end ignora.
+    E("campo-quantas").hidden = !f;
     E("t2").textContent = f ? "Onde procurar" : "A sua planilha";
     E("s2").textContent = f
       ? "Estado e CNAE definem o alvo. A cidade é opcional."
@@ -370,6 +374,76 @@
     E(id).addEventListener("change", guardar);
   });
 
+  // ───────── prévia da planilha ─────────
+  // Conta os CNPJs no próprio navegador para o resumo não ter de mentir um
+  // número. Só CSV: xlsx é um zip e não vale carregar uma biblioteca inteira
+  // para adiantar uma contagem que a VM refaz de qualquer jeito.
+  var planilha = { n: null, descartados: 0, lida: false };
+
+  function dvOk(c) {
+    if (!/^\d{14}$/.test(c) || /^(\d)\1{13}$/.test(c)) return false;
+    var calc = function (base) {
+      var peso = base.length - 7, soma = 0;
+      for (var i = 0; i < base.length; i++) {
+        soma += base.charCodeAt(i) % 48 * peso;
+        peso = (--peso < 2) ? 9 : peso;
+      }
+      var r = soma % 11;
+      return String(r < 2 ? 0 : 11 - r);
+    };
+    var d1 = calc(c.slice(0, 12));
+    return d1 === c[12] && calc(c.slice(0, 12) + d1) === c[13];
+  }
+
+  function lerPlanilha(f) {
+    planilha = { n: null, descartados: 0, lida: false };
+    var alvo = E("previa");
+    alvo.hidden = true;
+    if (!f) return;
+    if (!/\.csv$/i.test(f.name)) {
+      alvo.className = "aviso aviso-info";
+      alvo.style.margin = "0 0 18px";
+      alvo.innerHTML = "Arquivo <strong>" + esc(f.name) + "</strong>. A contagem"
+        + " sai quando o arquivo for lido no servidor — e aparece aqui em"
+        + " Minhas listas.";
+      alvo.hidden = false;
+      return;
+    }
+    var fr = new FileReader();
+    fr.onload = function () {
+      var txt = String(fr.result || "");
+      var vistos = {}, bons = 0, ruins = 0;
+      (txt.match(/\d[\d.\-\/\s]{12,19}\d/g) || []).forEach(function (bruto) {
+        var c = bruto.replace(/\D/g, "");
+        if (c.length !== 14) return;
+        if (vistos[c]) return;
+        vistos[c] = 1;
+        if (dvOk(c)) bons++; else ruins++;
+      });
+      planilha = { n: bons, descartados: ruins, lida: true };
+      var alvo = E("previa");
+      alvo.className = bons ? "aviso aviso-ok" : "aviso aviso-erro";
+      alvo.style.margin = "0 0 18px";
+      alvo.innerHTML = "<strong class='num'>" + bons + "</strong> CNPJ(s) válidos"
+        + " — <strong class='num'>" + Math.ceil(bons / 100) + "</strong> lista(s) de 100."
+        + (ruins ? " <span class='num'>" + ruins + "</span> descartado(s) pelo"
+                 + " dígito verificador." : "")
+        + (bons ? "" : " Confira se a planilha tem mesmo uma coluna de CNPJ.");
+      alvo.hidden = false;
+      montaResumoSeVisivel();
+    };
+    fr.onerror = function () { planilha = { n: null, descartados: 0, lida: false }; };
+    fr.readAsText(f, "utf-8");
+  }
+
+  E("arquivo").addEventListener("change", function () {
+    lerPlanilha(E("arquivo").files[0]);
+  });
+
+  function montaResumoSeVisivel() {
+    if (!E("p3").hidden) montaResumo();
+  }
+
   // ───────── passo 3 ─────────
   function linha(k, v) {
     return "<tr><td class='chave'>" + k + "</td><td class='valor'>" + v + "</td></tr>";
@@ -383,16 +457,34 @@
       h += linha("Estados", esc(E("estados").value.toUpperCase()) || "todos");
       if (E("cidade").value) h += linha("Cidade", esc(E("cidade").value));
       h += linha("CNAE", esc(E("cnaes").value) || "todos");
+      h += linha("Empresas", "<span class='num'>" + q + "</span>");
+      h += linha("Listas de 100", "<span class='num'>" + listas + "</span>");
     } else {
       var f = E("arquivo").files[0];
       h += linha("Planilha", f ? esc(f.name) : "nenhuma escolhida");
+      if (planilha.lida) {
+        h += linha("Empresas", "<span class='num'>" + planilha.n + "</span> da planilha");
+        h += linha("Listas de 100",
+                   "<span class='num'>" + Math.ceil(planilha.n / 100) + "</span>");
+        if (planilha.descartados) {
+          h += linha("Descartados", "<span class='num'>" + planilha.descartados
+                     + "</span> por dígito verificador");
+        }
+      } else {
+        h += linha("Empresas", "todas as da planilha");
+        h += linha("Listas de 100", "uma a cada 100 do arquivo");
+      }
     }
-    h += linha("Empresas", "<span class='num'>" + q + "</span>");
-    h += linha("Listas de 100", "<span class='num'>" + listas + "</span>");
     h += linha("Contatos na internet",
                E("apify").value === "sim" ? "sim, teto de US$ 5 por lista" : "não");
     E("resumo").innerHTML = h;
-    E("b-avancar").textContent = "Entregar " + q + (q === 1 ? " empresa" : " empresas");
+    if (estado.origem === "planilha") {
+      E("b-avancar").textContent = planilha.lida
+        ? "Entregar " + planilha.n + " empresas"
+        : "Entregar a planilha";
+    } else {
+      E("b-avancar").textContent = "Entregar " + q + (q === 1 ? " empresa" : " empresas");
+    }
   }
 
   // ───────── avançar e voltar ─────────
@@ -493,7 +585,9 @@
         return p.status === "pendente" || p.status === "em_curso";
       });
       clearTimeout(relogio);
-      if (andando && !E("pg-listas").hidden) relogio = setTimeout(carregarListas, 20000);
+      // 10s: a ponte empurra andamento a cada 15s, então mais lento que
+      // isso faria a barra andar aos saltos grandes.
+      if (andando && !E("pg-listas").hidden) relogio = setTimeout(carregarListas, 10000);
     }).catch(function (e) {
       alvo.innerHTML = "<div class='cartao'><div class='aviso aviso-erro' style='margin-top:0'>"
         + esc((e && e.message) || "não consegui carregar") + "</div>"
@@ -513,6 +607,30 @@
       cancelado:["pil-fila", "cancelado"]
     }[s] || ["pil-fila", s || "—"];
     return "<span class='pil " + m[0] + "'>" + m[1] + "</span>";
+  }
+
+  // A barra só mostra fração quando existe fração: o número de empresas já
+  // consultadas vem do worker, que grava de dez em dez, e a ponte empurra
+  // para cá a cada 15 segundos. Antes disso ela é indeterminada.
+  function progresso(p) {
+    var alvo = +p.total || 0;
+    var feitas = +p.processadas || 0;
+    var listas = +p.listas || (alvo ? Math.ceil(alvo / 100) : 0);
+    var prontas = +p.listas_prontas || 0;
+    var sabe = alvo > 0 && feitas > 0;
+    var pct = sabe ? Math.max(2, Math.min(99, Math.round(feitas / alvo * 100))) : 0;
+
+    var h = "<div class='barra" + (sabe ? "" : " indefinida") + "'>"
+          + "<i style='width:" + (sabe ? pct + "%" : "") + "'></i></div>";
+    var t = [];
+    if (sabe) t.push("<span class='num'>" + feitas + "</span> de <span class='num'>"
+                     + alvo + "</span> empresas");
+    else t.push(p.status === "pendente" ? "Na fila" : "Começando");
+    if (listas) t.push("lista <span class='num'>" + Math.min(prontas + 1, listas)
+                       + "</span> de <span class='num'>" + listas + "</span>");
+    h += "<div class='dica'>" + t.join(" · ")
+       + " — o botão de baixar aparece sozinho, sem recarregar a página.</div>";
+    return h;
   }
 
   function descreve(p) {
@@ -573,12 +691,12 @@
              + " <span class='num'>(" + (+L.empresas || 0) + ")</span></a>";
         });
         h += "</div>";
-      } else if (p.status === "em_curso" || p.status === "pendente") {
-        h += "<div class='dica'>Gerando. Cada lista de 100 leva uns dois minutos"
-           + " — o botão de baixar aparece aqui sozinho, sem recarregar a página.</div>";
-      } else if (p.status === "pronto") {
-        h += "<div class='dica'>As listas deste pedido já foram baixadas e"
-           + " apagadas do servidor. Peça de novo para gerar outras.</div>";
+      }
+      if (p.status === "em_curso" || p.status === "pendente") {
+        h += progresso(p);
+      } else if (!ls.length && p.status === "pronto") {
+        h += "<div class='dica'>As listas deste pedido expiraram — o arquivo"
+           + " fica sete dias no servidor. Peça de novo para gerar outras.</div>";
       }
       h += "</div>";
     });
@@ -644,6 +762,8 @@
     E("quantas").value = "100";
     E("apify").value = "nao";
     try { E("arquivo").value = ""; } catch (e) {}
+    planilha = { n: null, descartados: 0, lida: false };
+    E("previa").hidden = true;
     E("op-filtro").removeAttribute("aria-pressed");
     E("op-planilha").removeAttribute("aria-pressed");
     contaCnae();

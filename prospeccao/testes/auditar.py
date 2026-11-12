@@ -91,6 +91,20 @@ SABOTAGENS += [
     ("marcação nunca marca nada", "entregues",
      'l["ja_entregue"] = "SIM" if quando else ""',
      'l["ja_entregue"] = ""'),
+    # A planilha manda no total, e o andamento que sustenta a barra.
+    ("planilha volta a respeitar o total pedido", "servico/ponte",
+     "        r = fila.criar(cnpjs, filtro=\"planilha\", formatos=formatos,",
+     "        cnpjs = cnpjs[:total]\n"
+     "        r = fila.criar(cnpjs, filtro=\"planilha\", formatos=formatos,"),
+    ("worker para de gravar o andamento", "servico/worker",
+     "            if feitas % 10 == 0 or feitas == len(cnpjs):",
+     "            if False:"),
+    ("barra passa a medir lead em vez de empresa consultada", "servico/fila",
+     "\"SELECT COALESCE(SUM(processadas), 0) andadas,\"",
+     "\"SELECT COALESCE(SUM(leads), 0) andadas,\""),
+    ("pulso de andamento bate tambem em pedido terminado", "servico/ponte",
+     "        \"WHERE status IN ('pendente','executando') \"",
+     "        \"WHERE status IS NOT NULL \""),
     # A contagem de repetidas, da planilha ate a tela.
     ("worker volta a jogar fora a contagem de repetidas", "servico/worker",
      "leads=len(leads), repetidas=repetidas,", "leads=len(leads), repetidas=0,"),

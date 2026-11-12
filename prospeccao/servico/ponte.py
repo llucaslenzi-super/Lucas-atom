@@ -31,6 +31,9 @@ from cnpj import config, entregues, exportar
 from servico.fila import Fila
 
 INTERVALO = int(os.environ.get("PONTE_INTERVALO", "60"))
+# Andamento sobe mais rápido que o ciclo pesado: é PATCH de Data Table pela
+# API REST, não webhook, então não gasta execução no n8n.
+PULSO = int(os.environ.get("PONTE_PULSO", "15"))
 
 N8N = os.environ.get("N8N_BASE", "https://atomtecnologia.app.n8n.cloud").rstrip("/")
 JWT = (os.environ.get("N8N_JWT") or "").strip()
@@ -149,9 +152,14 @@ def criar_local(fila: Fila, linha: dict) -> dict:
             raise ValueError(
                 f"nenhum CNPJ válido na planilha "
                 f"({info.get('invalidos_descartados', 0)} descartados pelo dígito)")
-        return fila.criar(cnpjs, filtro="planilha", formatos=formatos,
-                          cliente=cliente, com_apify=com_apify,
-                          teto_usd=teto_usd, chave_idem=str(linha["id"]))
+        # `total` da linha é IGNORADO aqui, de propósito: quem manda uma
+        # planilha quer as empresas da planilha, todas elas. A fila fatia em
+        # lotes de 100 sozinha.
+        r = fila.criar(cnpjs, filtro="planilha", formatos=formatos,
+                       cliente=cliente, com_apify=com_apify,
+                       teto_usd=teto_usd, chave_idem=str(linha["id"]))
+        r["descartados"] = int(info.get("invalidos_descartados", 0))
+        return r
 
     from cnpj import buscar as mod_buscar
     # normalizar_filtro: o n8n guarda o filtro com os nomes da API, no plural.
@@ -188,7 +196,15 @@ def puxar(fila: Fila) -> int:
             _log(f"pedido {linha['id']} falhou (vai tentar de novo): "
                  f"{type(e).__name__}: {e}")
             continue
-        marcar_pedido(linha["id"], status="em_curso", pedido_id=r["id"])
+        # `total` volta corrigido: numa planilha, o número de empresas quem
+        # diz é o arquivo, e a tela precisa mostrar o de verdade.
+        campos = {"status": "em_curso", "pedido_id": r["id"],
+                  "total": r.get("total") or 0}
+        if r.get("descartados"):
+            campos["motivo"] = (
+                f"{r['descartados']} CNPJ(s) da planilha descartados pelo "
+                "dígito verificador; o resto seguiu")
+        marcar_pedido(linha["id"], **campos)
         criados += 1
         _log(f"pedido {linha['id']} → {r['id']} · {r['fatias']} lista(s) "
              f"de {r['total']} empresas")
@@ -238,6 +254,34 @@ def publicar_entregues(cliente: str, lote: str, cnpjs: list[str],
     for i in range(0, len(linhas), 100):
         _api(f"data-tables/{TABELA_ENTREGUES}/rows", metodo="POST",
              corpo={"data": linhas[i:i + 100]})
+
+
+def reportar_progresso(fila: Fila) -> int:
+    """
+    Empurra o andamento dos pedidos em curso para a linha deles no n8n.
+
+    Sem isto a tela fica dois minutos mostrando "na fila" e silêncio, que é
+    indistinguível de travado. O número vem do worker, que grava quantas
+    empresas já consultou de dez em dez.
+
+    Em repouso não faz chamada nenhuma: só pedido em curso gera tráfego.
+    """
+    emcurso = fila.db.execute(
+        "SELECT id, chave_idem FROM pedidos "
+        "WHERE status IN ('pendente','executando') "
+        "  AND chave_idem IS NOT NULL").fetchall()
+    enviados = 0
+    for ped in emcurso:
+        pr = fila.progresso(ped["id"])
+        try:
+            marcar_pedido(ped["chave_idem"], processadas=pr["andadas"],
+                          listas_prontas=pr["prontas"], listas=pr["listas"])
+        except Exception as e:
+            # n8n fora do ar ou lento: não insiste com os outros nesta volta.
+            _log(f"andamento de {ped['id']} não subiu: {type(e).__name__}")
+            break
+        enviados += 1
+    return enviados
 
 
 def fechar_pedido(fila: Fila, pedido_id: str, linha_n8n: str | None) -> None:
@@ -357,7 +401,17 @@ def main() -> int:
             _log(f"n8n inalcançável: {e.reason}")
         except Exception as e:
             _log(f"ciclo falhou: {type(e).__name__}: {e}")
-        time.sleep(INTERVALO)
+
+        # Entre dois ciclos pesados, só o pulso de andamento. Dormir os 60 s
+        # inteiros deixaria a barra de progresso parada por um minuto.
+        dormido = 0
+        while dormido < INTERVALO:
+            time.sleep(min(PULSO, INTERVALO - dormido))
+            dormido += PULSO
+            try:
+                reportar_progresso(fila)
+            except Exception as e:
+                _log(f"pulso falhou: {type(e).__name__}: {e}")
     return 0
 
 

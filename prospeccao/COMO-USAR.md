@@ -13,14 +13,43 @@ A senha está fora do repositório. Ela é constante no nó `Roteia` do workflow
 2. **Nova pesquisa**, em três passos:
    - **Origem**: filtro na base da Receita, ou uma planilha de CNPJs que ela
      já tem.
-   - **Critérios**: para qual cliente é a lista, estados, cidade, até 2 CNAEs,
-     quantas empresas e se busca contatos na internet.
+   - **Critérios**: para qual cliente é a lista, e depois o que a origem
+     pedir. No **filtro**: estados, cidade, até 2 CNAEs e quantas empresas.
+     Na **planilha**: só o arquivo — quantas empresas quem diz é ele.
    - **Confirmar**: o resumo, e o aviso de que a entrega não volta atrás.
 3. **Minhas listas** — cada lista de 100 ganha o botão de baixar assim que
    fica pronta. O arquivo cai no computador dela. Não há link para copiar,
    não há e-mail, não há Drive.
 4. **Entregues** — procura um CNPJ e diz se ele já foi para algum cliente,
    quando, e em qual lista.
+
+## Planilha: o arquivo manda
+
+Mandou planilha, vão **todas** as empresas dela. Não se pergunta quantas,
+porque o número já está no arquivo: ele é lido, os CNPJs com dígito
+verificador errado são descartados, e o resto é fatiado em listas de 100.
+1.284 CNPJs viram 13 listas, sendo a última de 84.
+
+A tela conta os CNPJs do CSV no próprio navegador e mostra, antes de
+confirmar, quantos são válidos, quantas listas vão sair e quantos foram
+descartados. Para .xlsx a contagem só sai depois, no servidor — ler zip no
+navegador custaria uma biblioteca inteira para adiantar uma conta que a VM
+refaz de qualquer jeito.
+
+## A barra de progresso
+
+Enquanto a lista não fica pronta, o único que sabe do andamento é a VM. Então
+ela conta:
+
+- o worker grava quantas empresas já consultou, **de dez em dez**
+- a ponte empurra esse número para a linha do pedido no n8n **a cada 15 s** —
+  é PATCH de Data Table pela API REST, não webhook, então não gasta execução
+- a tela pergunta de 10 em 10 s enquanto houver pedido andando, e para quando
+  não há
+
+A barra mostra `empresas consultadas / total` e, embaixo, em que lista está.
+Enquanto ninguém começou — pedido ainda na fila — ela fica indeterminada, em
+vez de fingir uma fração que não existe.
 
 ## As regras que a tela torna visíveis
 
