@@ -99,6 +99,11 @@ SABOTAGENS += [
     ("ponte reenvia a fatia já entregue", "servico/ponte",
      "WHERE f.status='pronto' AND f.entregue_em IS NULL ",
      "WHERE f.status='pronto' "),
+    ("ponte não traduz o filtro da API", "servico/ponte",
+     "filtro = mod_buscar.normalizar_filtro(json.loads(linha.get(\"filtro\") or \"{}\"))",
+     "filtro = json.loads(linha.get(\"filtro\") or \"{}\")"),
+    ("pedido impossível fica em laço para sempre", "servico/ponte",
+     "        except PERMANENTES as e:", "        except _NadaDisso as e:"),
 ]
 
 

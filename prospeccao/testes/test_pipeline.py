@@ -4,7 +4,9 @@ Testes dos pontos que falham EM SILÊNCIO.
 Cada um destes já quebrou de verdade, ou quebraria sem ninguém perceber:
 nenhum levanta exceção, todos entregam planilha errada parecendo certa.
 """
+import json
 import sys
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -1301,3 +1303,111 @@ def test_ponte_nao_liga_apify_por_omissao(tmp_path, monkeypatch):
                         [pedindo["id"]]).fetchone()
     assert p["com_apify"] == 1
     assert p["teto_usd"] == 7.5
+
+
+def test_filtro_aceita_plural_da_api_e_singular_da_consulta(tmp_path, monkeypatch):
+    """
+    O defeito que derrubou o primeiro teste ao vivo: o n8n guarda o filtro com
+    os nomes da API, no plural, e a consulta recebe no singular. A ponte
+    passava cru e morria com `buscar() got an unexpected keyword argument
+    'ufs'` de minuto em minuto, dez vezes, sem nada no n8n dizendo o motivo.
+    """
+    from cnpj import buscar as mod
+    from cnpj import carregar
+
+    assert mod.normalizar_filtro({"ufs": ["SC"], "cnaes": ["13"]}) == {
+        "uf": ["SC"], "cnae": ["13"]}
+    # o singular passa intacto, e None desaparece
+    assert mod.normalizar_filtro({"uf": ["SC"], "municipios": None}) == {
+        "uf": ["SC"]}
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+    plural = {"ufs": ["SC"], "cnaes": ["13"], "apenas_matriz": False}
+    assert mod.contar(db=db, excluir_entregues=False,
+                      **mod.normalizar_filtro(plural)) == 2
+
+
+def test_api_e_consulta_nao_divergem_nos_nomes_do_filtro():
+    """
+    Se a API ganhar um campo e a tradução não, a ponte volta a morrer. Este
+    teste existe para a divergência doer aqui, não em produção.
+    """
+    import os
+    os.environ.setdefault("API_TOKEN", "x")
+    from cnpj import buscar as mod
+    from servico.api import Filtro
+
+    f = Filtro(cliente="x", ufs=["SC"], cnaes=["13"], municipios=["GASPAR"],
+               porte=["pequeno"], apenas_matriz=True)
+    da_api = set(f.kw())
+    traduzidos = set(mod.normalizar_filtro(f.model_dump()))
+    assert da_api == traduzidos, (
+        f"só na API: {da_api - traduzidos} · só na tradução: {traduzidos - da_api}")
+
+
+def test_pedido_que_nunca_vai_dar_certo_para_de_tentar(tmp_path, monkeypatch):
+    """
+    Dez tentativas idênticas no log e nada no n8n é pior que uma falha: o
+    cliente espera uma lista que nunca vem e ninguém sabe por quê. Falha no
+    PEDIDO marca erro; falha no CAMINHO tenta de novo.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+
+    monkeypatch.setattr(ponte.config, "DADOS", tmp_path)
+    fila = Fila(tmp_path / "jobs.sqlite")
+    marcados = []
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda lid, **c: marcados.append((lid, c)))
+
+    # permanente: o filtro é absurdo
+    monkeypatch.setattr(ponte, "pedidos_pendentes",
+                        lambda: [{"id": 1, "cliente": "a",
+                                  "filtro": '{"coluna_que_nao_existe": 1}'}])
+    assert ponte.puxar(fila) == 0
+    assert marcados and marcados[0][1]["status"] == "erro"
+    assert "TypeError" in marcados[0][1]["motivo"]
+
+    # transitório: a rede caiu. NÃO marca erro — tenta na volta seguinte.
+    marcados.clear()
+    def rede_caiu(*a, **k):
+        raise urllib.error.URLError("rede")
+    monkeypatch.setattr(ponte, "criar_local", rede_caiu)
+    monkeypatch.setattr(ponte, "pedidos_pendentes",
+                        lambda: [{"id": 2, "cliente": "a", "filtro": "{}"}])
+    assert ponte.puxar(fila) == 0
+    assert marcados == [], "marcou erro numa falha de rede, que é transitória"
+
+
+def test_ponte_cria_pedido_com_filtro_no_plural(tmp_path, monkeypatch):
+    """
+    Este teste existe porque a auditoria de sabotagem passou sem pegar: eu
+    testei a tradução isolada e o caminho da ponte não. É o caminho que
+    quebrou ao vivo, com `buscar() got an unexpected keyword argument 'ufs'`.
+
+    Aqui o filtro entra EXATAMENTE como o n8n o guarda, com os nomes da API.
+    """
+    from cnpj import carregar, config, entregues
+    from servico import ponte
+    from servico.fila import Fila
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+    monkeypatch.setattr(config, "DB", db)
+    monkeypatch.setattr(config, "DADOS", tmp_path)
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte.config, "DADOS", tmp_path)
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    linha = {"id": 99, "cliente": "acme", "total": 10, "formatos": "xlsx",
+             "filtro": json.dumps({"ufs": ["SC"], "cnaes": ["13"],
+                                   "apenas_matriz": False})}
+
+    r = ponte.criar_local(fila, linha)
+    assert r["total"] == 2, f"a ponte não achou as empresas: {r}"
+    p = fila.db.execute("SELECT cliente, filtro FROM pedidos WHERE id=?",
+                        [r["id"]]).fetchone()
+    assert p["cliente"] == "acme"
+    # e o filtro gravado já está no formato que a consulta entende
+    assert "uf" in json.loads(p["filtro"])

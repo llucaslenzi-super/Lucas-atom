@@ -22,6 +22,23 @@ class CnaesDemais(ValueError):
     pass
 
 
+# A API fala no plural (ufs, cnaes, municipios) e buscar() no singular. Até
+# agora a tradução vivia só dentro de Filtro.kw(), na API — e a ponte, que
+# passa o filtro cru vindo do n8n, morria com
+# `buscar() got an unexpected keyword argument 'ufs'` de minuto em minuto.
+#
+# A tradução passa a morar AQUI, perto de quem a consome, e aceita os dois
+# jeitos. Duas formas de escrever o mesmo filtro em dois lugares é uma a mais.
+APELIDOS = {"ufs": "uf", "cnaes": "cnae", "municipios": "municipio",
+            "portes": "porte"}
+
+
+def normalizar_filtro(d: dict) -> dict:
+    """Aceita o filtro no plural da API ou no singular da consulta."""
+    return {APELIDOS.get(k, k): v for k, v in (d or {}).items()
+            if v is not None}
+
+
 SITUACAO_COD = {"ativa": "02", "nula": "01", "suspensa": "03",
                 "inapta": "04", "baixada": "08"}
 PORTE_COD = {"mei": "01", "micro": "01", "pequeno": "03",

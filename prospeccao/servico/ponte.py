@@ -51,6 +51,17 @@ class SemCredencial(RuntimeError):
     pass
 
 
+# Erros que são do pedido, não do caminho. Repetir dá o mesmo resultado, então
+# o pedido é marcado como erro e o cliente sabe o motivo — em vez de ficar em
+# laço no log e esperando uma lista que nunca vem.
+PERMANENTES = (ValueError, TypeError, KeyError, base64.binascii.Error)
+
+# Usado só pela auditoria de sabotagem, para trocar PERMANENTES por algo
+# que nunca casa e provar que sem ele o pedido fica em laço.
+class _NadaDisso(Exception):
+    pass
+
+
 def _log(msg: str) -> None:
     print(f"[ponte] {msg}", flush=True)
 
@@ -147,7 +158,8 @@ def criar_local(fila: Fila, linha: dict) -> dict:
                           teto_usd=teto_usd, chave_idem=str(linha["id"]))
 
     from cnpj import buscar as mod_buscar
-    filtro = json.loads(linha.get("filtro") or "{}")
+    # normalizar_filtro: o n8n guarda o filtro com os nomes da API, no plural.
+    filtro = mod_buscar.normalizar_filtro(json.loads(linha.get("filtro") or "{}"))
     filtro["cliente"] = cliente
     linhas = mod_buscar.buscar(limite=total, ordenar="cnpj",
                                marcar_entregues=True, **filtro)
@@ -165,14 +177,20 @@ def puxar(fila: Fila) -> int:
     for linha in pedidos_pendentes():
         try:
             r = criar_local(fila, linha)
-        except ValueError as e:
-            # Recusa de validação é resposta, não falha: o cliente precisa
-            # saber POR QUE o pedido dele não virou lista.
-            _log(f"pedido {linha['id']} recusado: {e}")
-            marcar_pedido(linha["id"], status="erro", motivo=str(e)[:300])
+        except PERMANENTES as e:
+            # Falha no PEDIDO, não no caminho: tentar de novo dá o mesmo erro.
+            # Antes, qualquer exceção caía no retry e o pedido ficava em laço
+            # de minuto em minuto, para sempre — foi o que aconteceu com o
+            # `buscar() got an unexpected keyword argument 'ufs'`: dez
+            # tentativas idênticas no log e nada no n8n dizendo o motivo.
+            _log(f"pedido {linha['id']} recusado: {type(e).__name__}: {e}")
+            marcar_pedido(linha["id"], status="erro",
+                          motivo=f"{type(e).__name__}: {e}"[:300])
             continue
         except Exception as e:
-            _log(f"pedido {linha['id']} falhou: {type(e).__name__}: {e}")
+            # Transitório: rede, n8n fora do ar, disco. Tenta na volta seguinte.
+            _log(f"pedido {linha['id']} falhou (vai tentar de novo): "
+                 f"{type(e).__name__}: {e}")
             continue
         marcar_pedido(linha["id"], status="em_curso", pedido_id=r["id"])
         criados += 1
