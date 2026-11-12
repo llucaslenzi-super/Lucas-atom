@@ -282,3 +282,18 @@ class Fila:
     def ler(self, chave: str):
         r = self.db.execute("SELECT valor FROM servico WHERE chave=?", [chave]).fetchone()
         return r["valor"] if r else None
+
+    # ---------------------------------------------------------- retenção
+    def pedidos_para_limpar(self, dias=7) -> list[str]:
+        """
+        Pedidos concluídos há mais de `dias`, cujos arquivos podem sair do
+        disco. `SAIDA/{pid}/` cresce para sempre num disco de 15 GB, e depois
+        da entrega o arquivo que importa não está mais aqui.
+
+        Só pedido CONCLUÍDO entra: pedido pausado ou em curso guarda os
+        arquivos, mesmo velho.
+        """
+        corte = _agora_menos(dias * 24 * 60)
+        return [r["id"] for r in self.db.execute(
+            "SELECT id FROM pedidos WHERE status IN ('pronto','parcial','cancelado') "
+            "AND concluido_em IS NOT NULL AND concluido_em < ?", [corte])]

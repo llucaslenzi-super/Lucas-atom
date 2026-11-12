@@ -79,6 +79,9 @@ SABOTAGENS += [
      '        resumo["custo_usd"] = None', '        resumo["custo_usd"] = 0.0'),
     ("restauração apaga quem foi entregue depois", "entregues",
      "INSERT OR IGNORE INTO entregues ", "INSERT OR REPLACE INTO entregues "),
+    ("limpeza apaga pedido que não terminou", "servico/fila",
+     "WHERE status IN ('pronto','parcial','cancelado') ",
+     "WHERE status IS NOT NULL "),
 ]
 
 

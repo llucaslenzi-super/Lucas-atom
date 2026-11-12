@@ -24,6 +24,8 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from . import buscar as mod_buscar
 from . import carregar as mod_carregar
 from . import config, exportar
@@ -52,13 +54,25 @@ def cmd_testar(a):
             continue
         linhas = achatar(r.dados)
         for L in linhas:
-            enr = any(v for k, v in L.items() if k.startswith("enr_"))
-            _ok(f"{L['cnpj']}  {L['razao_social']}")
-            print(f"      {L['municipio']}/{L['uf']} · {L['situacao']} · {L['porte']}")
-            print(f"      tel {L['telefone_1'] or '—'} · whats {L['enr_whatsapp_principal'] or '—'}"
-                  f" · email {L['enr_email_principal'] or L['email'] or '—'}")
-            print(f"      sócio-adm: {L['socio_admin'] or '—'}")
-            print(f"      enrichment: {'PREENCHIDO' if enr else 'VAZIO (plano sem Plus?)'}"
+            # As chaves são as de colunas.py. Antes este bloco lia municipio,
+            # uf, telefone_1, enr_whatsapp_principal, enr_email_principal e
+            # socio_admin: nenhuma existe, e o comando que serve para provar
+            # que a API responde era o único que não rodava — KeyError na
+            # primeira linha.
+            def v(chave, vazio="—"):
+                x = L.get(chave)
+                if isinstance(x, (list, tuple)):
+                    x = "; ".join(str(i) for i in x if i)
+                return x or vazio
+
+            _ok(f"{v('cnpj')}  {v('razao_social')}")
+            print(f"      {v('cidade')}/{v('estado')} · {v('situacao')} · {v('porte')}")
+            print(f"      contatos {v('contatos')}")
+            print(f"      email {v('email')} · instagram {v('instagram')} · "
+                  f"site {v('site')}")
+            print(f"      sócios: {v('socios')}")
+            print(f"      enrichment: "
+                  f"{'VAZIO (plano sem Plus?)' if L.get('enrichment_vazio') else 'PREENCHIDO'}"
                   f"  ({dt:.2f}s{' · cache' if r.do_cache else ''})")
     print("\n ", api.estatisticas())
 
@@ -99,6 +113,23 @@ def cmd_restaurar(a):
     from . import entregues
     n = entregues.restaurar(a.arquivo)
     _ok(f"registro com {_n(n)} entregues depois da restauração")
+
+
+def cmd_limpar(a):
+    """Apaga os arquivos de pedidos concluídos há mais de N dias."""
+    import shutil
+    from servico.fila import Fila
+
+    fila = Fila(config.DADOS / "jobs.sqlite")
+    apagados, bytes_livres = 0, 0
+    for pid in fila.pedidos_para_limpar(a.dias):
+        pasta = config.SAIDA / pid
+        if not pasta.exists():
+            continue
+        bytes_livres += sum(f.stat().st_size for f in pasta.rglob("*") if f.is_file())
+        shutil.rmtree(pasta, ignore_errors=True)
+        apagados += 1
+    _ok(f"{apagados} pedido(s) limpo(s) · {bytes_livres/1e6:.1f} MB liberados")
 
 
 def cmd_conferir(a):
@@ -242,6 +273,10 @@ def main(argv=None):
 
     s = sub.add_parser("carregar", help="carrega os Parquet já baixados")
     s.set_defaults(fn=cmd_carregar)
+
+    s = sub.add_parser("limpar", help="apaga arquivos de pedidos antigos")
+    s.add_argument("--dias", type=int, default=7)
+    s.set_defaults(fn=cmd_limpar)
 
     s = sub.add_parser("copiar", help="cópia de segurança do registro de entregues")
     s.add_argument("--pasta")

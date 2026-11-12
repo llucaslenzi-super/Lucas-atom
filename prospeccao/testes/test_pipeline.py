@@ -890,3 +890,70 @@ def test_copia_respeita_a_retencao(tmp_path, monkeypatch):
 
     entregues.copiar(pasta, manter=3)
     assert len(list(pasta.glob("entregues-*.csv.gz"))) == 3
+
+
+def test_comando_testar_roda_sem_keyerror(capsys, monkeypatch):
+    """
+    O comando que serve para provar que a API do EmpresAqui responde era o
+    único que não rodava: lia municipio, uf, telefone_1,
+    enr_whatsapp_principal, enr_email_principal e socio_admin — seis chaves
+    que achatar() não cria. KeyError na primeira linha.
+    """
+    import types
+    from cnpj import __main__ as cli
+
+    # chaves CRUAS da API, como ela responde de verdade
+    resposta = {"cnpj": "84429695000111", "razao": "ATOM TECNOLOGIA LTDA",
+                "fantasia": "ATOM", "log_municipio": "ITAJAI", "log_uf": "SC",
+                "situacao": "2", "porte": "3", "email": "oi@atom.com.br"}
+
+    class _R:
+        http, dados, do_cache = 200, resposta, False
+
+    class _API:
+        def consultar(self, c): return _R()
+        def estatisticas(self): return "1 req"
+
+    monkeypatch.setattr(cli, "EmpresAqui", lambda *a, **k: _API())
+    cli.cmd_testar(types.SimpleNamespace(cnpjs=["84.429.695/0001-11"]))
+
+    saida = capsys.readouterr().out
+    assert "ATOM TECNOLOGIA LTDA" in saida
+    assert "ITAJAI/SC" in saida
+    assert "oi@atom.com.br" in saida
+    # e nenhum nome morto voltou
+    for morta in ("telefone_1", "enr_whatsapp", "socio_admin"):
+        assert morta not in saida
+
+
+def test_retencao_so_pega_pedido_concluido_e_velho(tmp_path):
+    """
+    SAIDA/{pid}/ cresce para sempre num disco de 15 GB. Mas limpar o pedido
+    errado apaga o arquivo que o cliente ainda não baixou: só entra pedido
+    CONCLUÍDO e velho. Pedido pausado guarda os arquivos, mesmo antigo.
+    """
+    from servico.fila import Fila
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    velho_pronto = f.criar([f"{i:014d}" for i in range(100)], filtro="a")
+    velho_pausado = f.criar([f"{i:014d}" for i in range(100, 200)], filtro="b")
+    novo_pronto = f.criar([f"{i:014d}" for i in range(200, 300)], filtro="c")
+
+    # conclui os três de formas diferentes
+    for p in (velho_pronto, novo_pronto):
+        fatia = f.db.execute("SELECT n FROM fatias WHERE pedido_id=?",
+                             [p["id"]]).fetchone()
+        f.concluir_fatia(p["id"], fatia["n"], leads=100)
+    fatia = f.db.execute("SELECT n FROM fatias WHERE pedido_id=?",
+                         [velho_pausado["id"]]).fetchone()
+    f.devolver_fatia(velho_pausado["id"], fatia["n"], "token")
+
+    # envelhece os dois "velhos"
+    f.db.execute("UPDATE pedidos SET concluido_em='2020-01-01T00:00:00+00:00' "
+                 "WHERE id IN (?,?)", [velho_pronto["id"], velho_pausado["id"]])
+    f.db.commit()
+
+    alvos = f.pedidos_para_limpar(dias=7)
+    assert velho_pronto["id"] in alvos
+    assert velho_pausado["id"] not in alvos, "pedido pausado perdeu os arquivos"
+    assert novo_pronto["id"] not in alvos, "pedido recém-pronto foi limpo"

@@ -153,10 +153,32 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+# retencao semanal: arquivos de pedido concluido ha mais de 7 dias.
+# Depois da entrega o arquivo que importa nao esta mais aqui.
+cat > /etc/systemd/system/$SLUG-limpeza.service <<EOF
+[Unit]
+Description=Misner · limpeza de arquivos antigos
+[Service]
+Type=oneshot
+$(_comum)
+ExecStart=$RAIZ/venv/bin/python -m cnpj limpar --dias 7
+EOF
+
+cat > /etc/systemd/system/$SLUG-limpeza.timer <<EOF
+[Unit]
+Description=Misner · limpeza semanal
+[Timer]
+OnCalendar=Sun 03:40:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl daemon-reload
 systemctl enable --now $SLUG-api $SLUG-worker
 systemctl enable $SLUG-base.timer
 systemctl enable --now $SLUG-copia.timer
+systemctl enable --now $SLUG-limpeza.timer
 systemctl start --no-block $SLUG-base    # ~40 min; não bloqueia o boot
 
 # 8 ─ túnel Cloudflare, se houver token
