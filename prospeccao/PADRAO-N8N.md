@@ -1,76 +1,116 @@
-# Agente de Prospecção Misner — organização no n8n
+# n8n — o que o Agente de Prospecção tem na Atom
 
-## A instância
+Instância **`atomtecnologia.app.n8n.cloud`**, projeto **Missner**
+(`U7PD2iEcNVV1GxIs`), que é onde o agente de vendas Missner também mora.
 
-```
-https://atomtecnologia.app.n8n.cloud
-projeto: LUCAS LENZI <lucas@atomwork.com.br>   (pessoal)
-```
+**Nada na soultextil.** As ferramentas MCP do n8n desta sessão apontam para
+lá; toda escrita é feita pela API REST com o JWT, nunca por MCP.
 
-**Tudo deste produto vive aqui.** A instância `soultextil.app.n8n.cloud` é
-outra coisa e não participa deste projeto.
+---
 
-## Slug
+## Duas coisas aprendidas na prática, e que custam tempo se esquecidas
 
-```
-slug      misner
-display   Misner
-pasta     Misner        (criada, ao lado de "Agente Internacional" e
-                         "Vendas (Agente WhatsApp)")
-```
+**1. Data Table é por projeto.** Workflow criado por API cai no projeto
+pessoal, e aí o nó de Data Table falha com *"could not be found in this
+project"*. A criação não aceita `projectId`: cria e depois
+`PUT /workflows/{id}/transfer` com `{"destinationProjectId": "..."}`.
 
-## O padrão, e o que já se pratica na Atom
+**2. `Content-Disposition` não vem de graça.** O `Respond to Webhook` em modo
+binário manda o `Content-Type` certo mas não o `Content-Disposition`, e aí o
+navegador decide sozinho o que fazer com o arquivo. Sem ele, não é download:
+é sorte.
 
-| Item | Padrão | Neste produto |
+---
+
+## Data Tables
+
+| nome | id | para quê |
 |---|---|---|
-| Workflow | `Produto · Função` | `Misner · Pedir Lista` · `Misner · Entregar Fatias` |
-| **Webhook (path)** | `produto-funcao` | `misner-pedido` · `misner-status` |
-| Pasta | nome do produto | `Misner` |
-| Credencial | `Produto · Serviço` | `Misner · API` |
-| Tag | nome do produto | `Misner` (nasce com o 1º workflow) |
+| `prospeccao_pedidos` | `7xKe4gdNqDX4SKEC` | fila de entrada: filtro ou planilha, status, motivo |
+| `prospeccao_listas` | `pvMmLx229Y5TAsEP` | lista pronta em base64, esperando download |
 
-Levantamento da Atom em 11/11/2026: 79 workflows, agrupados por prefixo —
-**J2P** (37), **Vendas** (23), sem prefixo (17), **TEMP** (2). Pastas em uso:
-Agente Internacional, Vendas (Agente WhatsApp). Nenhuma tag.
+Prefixo **`prospeccao_`** de propósito. O agente de vendas usa `missner_` em
+treze tabelas; `misner_` com um esse ao lado de `missner_` com dois é acidente
+esperando acontecer.
 
-O padrão de path mais próximo do documentado é o do Agente Internacional
-(`aginternacional-login`, `aginternacional-criar-cliente`). O J2P usa barra
-(`pagar/criar`, `auth/login`) e o Vendas é irregular (`app`, `material`).
-Misner segue o do Agente Internacional.
-
-## O que de fato protege
-
-**O path do webhook é o único que colide de verdade entre produtos.** Nome de
-workflow e de pasta duplicados são confusão humana; path duplicado é falha
-técnica. Com `misner-pedido` nada bate com os 52 webhooks que já existem —
-verificado um a um.
-
-Regra: **sempre prefixar o path com o slug.**
-
-## Isolamento
-
-Este produto **não reaproveita nada** do que já está na Atom. Nenhum workflow
-existente é chamado, alterado ou movido. Nenhuma credencial existente é
-reutilizada. O que o Misner precisa, o Misner cria com o próprio prefixo.
-
-## Checklist
+### Colunas
 
 ```
-[x] Pasta "Misner" criada no projeto pessoal
-[ ] Credencial  Misner · API         Bearer do serviço
-[ ] Workflow    Misner · Pedir Lista       → webhook misner-pedido
-[ ] Workflow    Misner · Entregar Fatias   → schedule, sem webhook
-[ ] Tag "Misner" aplicada aos dois
+prospeccao_pedidos   status · filtro · total · formatos
+                     planilha_nome · planilha_b64
+                     pedido_id · motivo · criado_em
+
+prospeccao_listas    chave · pedido_id · fatia · formato
+                     filename · ct · b64 · empresas
+                     criado_em · baixado_em
 ```
 
-Os workflows entram **depois** de a VM responder — workflow apontando para
-serviço inexistente é sujeira na instância.
+`chave` é `pedido-fatia-formato`, e é o que torna a entrega **idempotente**:
+reenviar a mesma fatia sobrescreve em vez de duplicar, então a ponte pode
+morrer no meio sem estragar nada.
 
-## O que não tocar
+---
+
+## Workflows
+
+| nome | id | disparo | caminho |
+|---|---|---|---|
+| `Prospecção · Guardar` | `Ph67Xx9EWhZjAhCD` | webhook POST | `/webhook/prospeccao-guardar` |
+| `Prospecção · Baixar` | `Xqd8A28VhasiNUBZ` | webhook GET | `/webhook/prospeccao-baixar?c=<chave>` |
+| `Prospecção · Limpar` | `pdkZrtUSu9emN6vm` | diário, 4h10 | — |
+
+Os três **ativos**.
+
+- **Guardar** — a ponte manda a lista em base64. Confere o segredo, monta a
+  chave e faz `upsert`. Recusa com 401 sem o segredo.
+- **Baixar** — Data Table → nó Code monta o binário → `Respond` com
+  `respondWith: binary` e `Content-Disposition: attachment`. É a cópia do
+  `Missner · Serve Material`, que já estava na instância. Chave inexistente ou
+  lista expirada devolve 404 com motivo, não um arquivo de zero byte.
+- **Limpar** — apaga linha já baixada e linha com mais de 7 dias. É o que
+  mantém a cota de 50 MB sob controle.
+
+### O segredo da ponte
+
+Uma constante dentro do nó `Valida` do Guardar, e a mesma string na metadata
+da VM como `PONTE_TOKEN`. Para rodar, troca nos dois lugares. Não está no
+repositório, que é público.
+
+---
+
+## Medido, não estimado
 
 ```
-J2P —      37 workflows   (auth, pagar, nf, asaas, cron)
-Vendas ·   23 workflows   (app, motor, lead set, material, instâncias)
-Agente Internacional ·  ·  Agente Processual WhatsApp
-Agente de Pedidos Soul v1/v2/v3   ·   TEMP —
+cota de Data Table da instância       50 MB  (teto do n8n Cloud; a variável
+                                       que o levanta só existe em auto-hospedado)
+já ocupado pelos outros workflows    4,5 MB
+livre                               45,5 MB  = 98 listas de 100 empresas
+
+lista de 100 empresas, 78 colunas:
+  XLSX   156 KB → 208 KB em base64
+  CSV    199 KB → 265 KB
+  PDF    237 KB → 316 KB
 ```
+
+## Testado ponta a ponta
+
+Planilha real de 100 empresas gerada pelo exportador do projeto, enviada ao
+Guardar e baixada pelo Baixar:
+
+```
+original  79.953 bytes
+baixado   79.953 bytes      sha256 idêntico
+Content-Disposition: attachment; filename="prospeccao-...-001.xlsx"
+abre no Excel · 100 linhas · cabeçalho CNPJ · Razão Social · Nome Fantasia ·
+Contatos · E-mail · Instagram
+```
+
+Linhas de teste apagadas depois; a instância voltou a 4,51 MB.
+
+---
+
+## O que ainda não existe
+
+- `Prospecção · Pedir` — a entrada do cliente
+- `servico/ponte.py` na VM — quem lê a fila e manda a lista
+- a interface
