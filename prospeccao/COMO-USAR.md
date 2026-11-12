@@ -16,6 +16,11 @@ A senha está fora do repositório. Ela é constante no nó `Roteia` do workflow
    - **Critérios**: para qual cliente é a lista, e depois o que a origem
      pedir. No **filtro**: estados, cidade, até 2 CNAEs e quantas empresas.
      Na **planilha**: só o arquivo — quantas empresas quem diz é ele.
+
+     Não há botão de ligar ou desligar o enriquecimento: **toda lista roda o
+     pipeline inteiro**, Receita mais Google Maps e Instagram. O que sobra
+     como trava é o teto de US$ 5 por lista, e ele vale no servidor — mandar
+     `com_apify: "nao"` na API não desliga nada.
    - **Confirmar**: o resumo, e o aviso de que a entrega não volta atrás.
 3. **Minhas listas** — cada lista de 100 ganha o botão de baixar assim que
    fica pronta. O arquivo cai no computador dela. Não há link para copiar,
@@ -62,6 +67,10 @@ vez de fingir uma fração que não existe.
   vem completa, com as repetidas marcadas na coluna 13 (`ja_entregue`) e a
   data da lista anterior na 14 (`entregue_antes_em`). A tela soma quantas são.
   Entregar 50 caladamente pareceria defeito.
+- **O enriquecimento é obrigatório.** Decidido em 12/11: a ferramenta entrega
+  empresa com contato, não cadastro seco. O custo real por lista fica
+  registrado em `fatias.custo_usd`, e quando o Apify falha a lista sai assim
+  mesmo, com o motivo em `apify_erro` — nunca silenciosamente sem contato.
 - **Dois CNAEs no máximo**, com o contador "2 de 2" à vista. Pela planilha não
   há teto, porque ali o CNAE é resultado, não critério.
 - **O teto de 2 vale no servidor também.** A tela é conveniência; a regra está

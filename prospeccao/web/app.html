@@ -129,19 +129,11 @@
             </div>
           </div>
 
-          <div class="linha" style="margin-top:18px">
-            <div class="campo" id="campo-quantas">
+          <div style="margin-top:18px">
+            <div class="campo" id="campo-quantas" style="max-width:320px">
               <label for="quantas">Quantas empresas</label>
               <input type="number" id="quantas" value="100" min="100" max="10000" step="100">
               <span class="dica">Entregue em listas de 100. 300 viram três listas.</span>
-            </div>
-            <div class="campo">
-              <label for="apify">Buscar contatos na internet</label>
-              <select id="apify">
-                <option value="nao">Não — só o cadastro da Receita</option>
-                <option value="sim">Sim — Google Maps e Instagram (custa)</option>
-              </select>
-              <span class="dica">Com teto de US$ 5 por lista.</span>
             </div>
           </div>
         </div>
@@ -220,7 +212,7 @@
   }
 
   // ───────── rascunho: sair no meio não perde nada ─────────
-  var CAMPOS = ["cliente", "estados", "cidade", "cnaes", "quantas", "apify"];
+  var CAMPOS = ["cliente", "estados", "cidade", "cnaes", "quantas"];
   function guardar() {
     try {
       var r = { origem: estado.origem };
@@ -475,8 +467,9 @@
         h += linha("Listas de 100", "uma a cada 100 do arquivo");
       }
     }
-    h += linha("Contatos na internet",
-               E("apify").value === "sim" ? "sim, teto de US$ 5 por lista" : "não");
+    // Enriquecimento não é opção: o pipeline roda inteiro, sempre. O que
+    // continua existindo é o teto, que é a trava de custo.
+    h += linha("Contatos na internet", "Google Maps e Instagram · teto de US$ 5 por lista");
     E("resumo").innerHTML = h;
     if (estado.origem === "planilha") {
       E("b-avancar").textContent = planilha.lida
@@ -528,7 +521,7 @@
     var corpo = {
       cliente: E("cliente").value.trim(),
       total: Math.max(1, +E("quantas").value || 100),
-      com_apify: E("apify").value === "sim" ? "sim" : "nao"
+      com_apify: "sim"
     };
     var pronto = Promise.resolve();
 
@@ -760,7 +753,6 @@
     estado.origem = null;
     ["estados", "cidade", "cnaes"].forEach(function (id) { E(id).value = ""; });
     E("quantas").value = "100";
-    E("apify").value = "nao";
     try { E("arquivo").value = ""; } catch (e) {}
     planilha = { n: null, descartados: 0, lida: false };
     E("previa").hidden = true;

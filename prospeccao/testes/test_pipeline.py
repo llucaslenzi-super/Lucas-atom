@@ -1293,6 +1293,12 @@ def test_ponte_nao_liga_apify_por_omissao(tmp_path, monkeypatch):
     O padrão da fila é Apify LIGADO. A ponte cria pedidos vindos de fora, e um
     pedido que não diga nada sobre enriquecimento gastaria dólar sem ninguém
     ter pedido. Quem quer gastar diz que quer, e diz quanto.
+
+    Isto NÃO contradiz a decisão de 12/11 de que toda lista roda o pipeline
+    inteiro: lá quem decide é a API do n8n, que grava `com_apify: "sim"` em
+    toda linha. Aqui é a camada de baixo, e ela existe para o caso de uma
+    linha chegar torta — por mão humana na Data Table, ou por outro cliente
+    da fila. Linha muda não gasta dinheiro.
     """
     import base64
     from servico import ponte
