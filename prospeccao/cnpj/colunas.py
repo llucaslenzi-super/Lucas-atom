@@ -21,6 +21,10 @@ BLOCOS = {
         "instagram", "site", "cidade", "estado", "socios",
         "cnae_codigo", "cnae_descricao",
     ],
+    # 13 e 14, logo depois das 12 que o cliente ditou. Posição escolhida: a
+    # pessoa precisa ver na hora se a linha é nova ou repetida, sem rolar a
+    # planilha até o fim.
+    "entrega": ["ja_entregue", "entregue_antes_em"],
     "redes": ["linkedin", "facebook", "google_maps"],
     "empresa": [
         "porte", "situacao", "data_situacao", "data_abertura", "idade_anos",
@@ -94,6 +98,7 @@ ROTULOS = {
     "site": "Site", "cidade": "Cidade", "estado": "Estado", "socios": "Sócios",
     "cnae_codigo": "CNAE", "cnae_descricao": "Atividade",
     "linkedin": "LinkedIn", "facebook": "Facebook", "google_maps": "Google Maps",
+    "ja_entregue": "Já Entregue?", "entregue_antes_em": "Entregue Antes Em",
     "porte": "Porte", "situacao": "Situação", "data_situacao": "Data da Situação",
     "data_abertura": "Abertura", "idade_anos": "Idade (anos)",
     "natureza_juridica": "Natureza Jurídica", "capital_social": "Capital Social",

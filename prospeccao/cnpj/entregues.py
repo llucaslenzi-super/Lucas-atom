@@ -11,6 +11,11 @@ voltaria a repetir empresa já no mês seguinte.
 
 Exclui por EMPRESA (cnpj_basico), não por estabelecimento: entregue a matriz,
 a filial não volta disfarçada de lead novo.
+
+E exclui POR CLIENTE. A mesma empresa pode ir para o cliente A e para o
+cliente B; nunca duas vezes para o mesmo. Era global até 12/11, o que dava
+exclusividade entre clientes e esgotava a base muito mais rápido do que o
+negócio precisa.
 """
 from __future__ import annotations
 
@@ -22,16 +27,23 @@ from . import config
 
 ARQUIVO = config.DADOS / "entregues.duckdb"
 
+# Rótulo das linhas que já existiam quando o registro virou por cliente.
+# Elas não têm cliente, e NÃO são distribuídas por adivinhação: recebem este
+# rótulo único, e quem souber de quem eram troca depois, com um UPDATE.
+CLIENTE_ANTIGO = "cliente-1"
+
 _ESQUEMA = """
 CREATE TABLE IF NOT EXISTS entregues (
-  cnpj          VARCHAR PRIMARY KEY,
+  cliente       VARCHAR NOT NULL,
+  cnpj          VARCHAR NOT NULL,
   cnpj_basico   VARCHAR NOT NULL,
   razao_social  VARCHAR,
   lote_id       VARCHAR NOT NULL,
   entregue_em   TIMESTAMP NOT NULL,
-  filtro_usado  VARCHAR
+  filtro_usado  VARCHAR,
+  PRIMARY KEY (cliente, cnpj)
 );
-CREATE INDEX IF NOT EXISTS ix_entregues_basico ON entregues(cnpj_basico);
+CREATE INDEX IF NOT EXISTS ix_entregues_basico ON entregues(cliente, cnpj_basico);
 CREATE INDEX IF NOT EXISTS ix_entregues_lote   ON entregues(lote_id);
 """
 
@@ -43,31 +55,134 @@ def _con(arquivo: Path | None = None, somente_leitura=False):
         duckdb.connect(str(alvo)).execute(_ESQUEMA)
     con = duckdb.connect(str(alvo), read_only=somente_leitura)
     if not somente_leitura:
+        # Migrar ANTES do esquema, não depois: o esquema cria o índice
+        # (cliente, cnpj_basico), e numa tabela antiga essa coluna ainda não
+        # existe — o CREATE INDEX falha e nem chega na migração.
+        _migrar(con)
         con.execute(_ESQUEMA)
     return con
 
 
-def registrar(leads: list[dict], lote_id: str, filtro: str = "", arquivo=None) -> int:
+def _migrar(con) -> None:
     """
-    Marca como entregues. Chamado SÓ quando a fatia foi gerada com sucesso —
-    lote que falha no meio não marca ninguém.
+    Põe a coluna `cliente` numa tabela que nasceu sem ela.
+
+    CREATE TABLE IF NOT EXISTS não altera tabela existente, então sem isto o
+    registro de uma VM em uso continuaria com o esquema antigo e toda consulta
+    por cliente falharia. Não dá para trocar a chave primária com ALTER, então
+    a tabela é refeita e o conteúdo migra inteiro, sob CLIENTE_ANTIGO.
     """
-    linhas = [(l["cnpj"], (l.get("cnpj_base") or l["cnpj"][:8]),
+    # information_schema, não PRAGMA: o PRAGMA do DuckDB levanta Catalog Error
+    # quando a tabela não existe, e aqui ela pode não existir ainda.
+    existe = con.execute(
+        "SELECT 1 FROM information_schema.tables "
+        "WHERE table_name = 'entregues'").fetchone()
+    if not existe:
+        return
+    tem = {r[0] for r in con.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'entregues'").fetchall()}
+    if "cliente" in tem:
+        return
+    n_antes = con.execute("SELECT COUNT(*) FROM entregues").fetchone()[0]
+    con.execute("ALTER TABLE entregues RENAME TO entregues_sem_cliente")
+    con.execute(_ESQUEMA)
+    con.execute(
+        "INSERT INTO entregues "
+        "SELECT ?, cnpj, cnpj_basico, razao_social, lote_id, entregue_em, "
+        "       filtro_usado FROM entregues_sem_cliente", [CLIENTE_ANTIGO])
+    n_depois = con.execute("SELECT COUNT(*) FROM entregues").fetchone()[0]
+    if n_depois != n_antes:
+        # Não apaga a tabela antiga se perdeu linha: melhor sobrar lixo do que
+        # perder o registro de quem já foi entregue.
+        raise RuntimeError(
+            f"migração perdeu linhas: {n_antes} antes, {n_depois} depois. "
+            "A tabela antiga foi preservada como entregues_sem_cliente.")
+    con.execute("DROP TABLE entregues_sem_cliente")
+    print(f"  registro migrado: {n_depois} entregas sob '{CLIENTE_ANTIGO}'")
+
+
+def registrar(leads: list[dict], lote_id: str, filtro: str = "",
+              arquivo=None, cliente: str = CLIENTE_ANTIGO) -> int:
+    """
+    Marca como entregues PARA ESTE CLIENTE. Chamado só quando a fatia foi
+    entregue de verdade — fatia que falha no meio não marca ninguém.
+
+    Empresa que já estava marcada para este cliente não conta de novo: o
+    INSERT OR IGNORE preserva a data e o lote da PRIMEIRA entrega, que é o
+    que a planilha mostra ao cliente quando a empresa vem repetida.
+    """
+    linhas = [(cliente, l["cnpj"], (l.get("cnpj_base") or l["cnpj"][:8]),
                l.get("razao_social"), lote_id, filtro)
               for l in leads if l.get("cnpj")]
     if not linhas:
         return 0
     con = _con(arquivo)
+    antes = con.execute("SELECT COUNT(*) FROM entregues WHERE cliente=?",
+                        [cliente]).fetchone()[0]
     con.executemany(
-        "INSERT OR REPLACE INTO entregues VALUES (?,?,?,?,now(),?)", linhas)
+        "INSERT OR IGNORE INTO entregues VALUES (?,?,?,?,?,now(),?)", linhas)
+    depois = con.execute("SELECT COUNT(*) FROM entregues WHERE cliente=?",
+                         [cliente]).fetchone()[0]
     con.close()
-    return len(linhas)
+    return depois - antes
 
 
-def ja_entregues(arquivo=None) -> set[str]:
-    """Os cnpj_basico já entregues, para o anti-join do filtro."""
+def ja_entregues(arquivo=None, cliente: str = CLIENTE_ANTIGO) -> set[str]:
+    """Os cnpj_basico já entregues A ESTE CLIENTE."""
     con = _con(arquivo, somente_leitura=True)
-    r = {x[0] for x in con.execute("SELECT DISTINCT cnpj_basico FROM entregues").fetchall()}
+    r = {x[0] for x in con.execute(
+        "SELECT DISTINCT cnpj_basico FROM entregues WHERE cliente=?",
+        [cliente]).fetchall()}
+    con.close()
+    return r
+
+
+def marcar(leads: list[dict], cliente: str, arquivo=None) -> int:
+    """
+    Preenche `ja_entregue` e `entregue_antes_em` em cada lead, lendo o
+    registro como ele está AGORA. Altera a lista no lugar. Devolve quantas
+    vieram repetidas.
+
+    Por que aqui e não na consulta: a consulta marca, mas a fila guarda só a
+    lista de CNPJs — as colunas se perdiam no caminho e nunca chegavam na
+    planilha. Marcar na hora de escrever também é mais correto: o registro
+    pode ter mudado entre o pedido e a execução da fatia.
+
+    Tem de rodar ANTES de `registrar`. Depois, tudo apareceria como repetido.
+    """
+    if not leads:
+        return 0
+    con = _con(arquivo, somente_leitura=True)
+    try:
+        bases = {(l.get("cnpj_base") or (l.get("cnpj") or "")[:8]) for l in leads}
+        bases.discard("")
+        if not bases:
+            return 0
+        marcas = dict(con.execute(
+            "SELECT cnpj_basico, MIN(entregue_em) FROM entregues "
+            "WHERE cliente = ? AND cnpj_basico IN "
+            f"({','.join('?' * len(bases))}) GROUP BY cnpj_basico",
+            [cliente, *sorted(bases)]).fetchall())
+    finally:
+        con.close()
+
+    n = 0
+    for l in leads:
+        base = l.get("cnpj_base") or (l.get("cnpj") or "")[:8]
+        quando = marcas.get(base)
+        l["ja_entregue"] = "SIM" if quando else ""
+        l["entregue_antes_em"] = (quando.strftime("%d/%m/%Y")
+                                  if hasattr(quando, "strftime") else quando) or ""
+        n += 1 if quando else 0
+    return n
+
+
+def clientes(arquivo=None) -> list[tuple]:
+    """Quem já recebeu alguma coisa, e quanto."""
+    con = _con(arquivo, somente_leitura=True)
+    r = con.execute("SELECT cliente, COUNT(*) n, MAX(entregue_em) ultimo "
+                    "FROM entregues GROUP BY cliente ORDER BY n DESC").fetchall()
     con.close()
     return r
 

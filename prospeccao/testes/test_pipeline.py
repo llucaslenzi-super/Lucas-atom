@@ -857,20 +857,23 @@ def test_restaurar_nao_apaga_nem_rebobina_o_que_veio_depois(tmp_path, monkeypatc
     entregues.registrar([{"cnpj": "84429695000111"}], "lote-1", "")
     copia = entregues.copiar(tmp_path / "copias")
 
-    # uma empresa nova, e a MESMA empresa reentregue noutro lote
+    # uma empresa nova, e a MESMA empresa aparecendo noutro lote
     entregues.registrar([{"cnpj": "86950110000130"}], "lote-2", "")
     entregues.registrar([{"cnpj": "84429695000111"}], "lote-2", "")
 
     assert entregues.restaurar(copia, arquivo=reg) == 2, (
         "a restauração apagou quem foi entregue depois do dump")
 
+    # A PRIMEIRA entrega é a que vale: é a data que a planilha mostra ao
+    # cliente quando a empresa volta marcada como repetida. Nem reentregar
+    # nem restaurar pode trocá-la.
     con = duckdb.connect(str(reg), read_only=True)
     lote = con.execute("SELECT lote_id FROM entregues WHERE cnpj=?",
                        ["84429695000111"]).fetchone()[0]
     con.close()
-    assert lote == "lote-2", (
-        f"a restauração rebobinou o lote para {lote}: o registro de qual "
-        "lista entregou a empresa se perdeu")
+    assert lote == "lote-1", (
+        f"o lote virou {lote}: a data da primeira entrega se perdeu, e é ela "
+        "que o cliente vê quando a empresa vem repetida")
 
 
 def test_copia_respeita_a_retencao(tmp_path, monkeypatch):
@@ -957,3 +960,189 @@ def test_retencao_so_pega_pedido_concluido_e_velho(tmp_path):
     assert velho_pronto["id"] in alvos
     assert velho_pausado["id"] not in alvos, "pedido pausado perdeu os arquivos"
     assert novo_pronto["id"] not in alvos, "pedido recém-pronto foi limpo"
+
+
+# ───────────── registro por cliente, e a repetida marcada
+
+def test_mesma_empresa_vai_para_dois_clientes_mas_nao_duas_vezes_para_um(tmp_path, monkeypatch):
+    """
+    Decidido em 12/11: a mesma empresa pode ir para o cliente A e para o B.
+    Nunca duas vezes para o mesmo. Antes era global, o que dava exclusividade
+    entre clientes e esgotava a base muito mais rápido do que o negócio pede.
+    """
+    from cnpj import entregues
+
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+    lead = [{"cnpj": "84429695000111", "razao_social": "ALFA"}]
+
+    assert entregues.registrar(lead, "lote-a", cliente="acme") == 1
+    assert entregues.registrar(lead, "lote-b", cliente="beta") == 1, (
+        "a empresa foi bloqueada para o segundo cliente")
+    assert entregues.registrar(lead, "lote-c", cliente="acme") == 0, (
+        "a mesma empresa entrou duas vezes para o mesmo cliente")
+
+    assert entregues.ja_entregues(cliente="acme") == {"84429695"}
+    assert entregues.ja_entregues(cliente="gama") == set()
+    assert dict((c, n) for c, n, _ in entregues.clientes()) == {"acme": 1, "beta": 1}
+
+
+def test_migracao_do_registro_sem_cliente_nao_perde_linha(tmp_path):
+    """
+    O registro de uma VM em uso nasceu sem a coluna cliente, e não dá para
+    trocar chave primária com ALTER: a tabela é refeita. Se a migração
+    perdesse linha, empresa já entregue voltaria a ser oferecida — o único
+    dano irreversível do sistema.
+    """
+    import duckdb
+    from cnpj import entregues
+
+    reg = tmp_path / "antigo.duckdb"
+    con = duckdb.connect(str(reg))
+    con.execute("""CREATE TABLE entregues (
+      cnpj VARCHAR PRIMARY KEY, cnpj_basico VARCHAR NOT NULL,
+      razao_social VARCHAR, lote_id VARCHAR NOT NULL,
+      entregue_em TIMESTAMP NOT NULL, filtro_usado VARCHAR)""")
+    con.executemany("INSERT INTO entregues VALUES (?,?,?,?,now(),?)",
+                    [(f"{i:014d}", f"{i:08d}", f"E{i}", "lote-velho", "SC")
+                     for i in range(37)])
+    con.close()
+
+    con = entregues._con(reg)
+    n = con.execute("SELECT COUNT(*) FROM entregues").fetchone()[0]
+    rotulos = {r[0] for r in
+               con.execute("SELECT DISTINCT cliente FROM entregues").fetchall()}
+    tabelas = {t[0] for t in con.execute("SHOW TABLES").fetchall()}
+    con.close()
+
+    assert n == 37, f"a migração mexeu no total: {n} de 37"
+    assert rotulos == {entregues.CLIENTE_ANTIGO}
+    assert "entregues_sem_cliente" not in tabelas, "sobrou a tabela antiga"
+
+
+def test_cem_pedidas_cinquenta_novas_cinquenta_marcadas(tmp_path, monkeypatch):
+    """
+    O caso que o Lucas descreveu em 12/11, palavra por palavra:
+
+      "pesquisei 100, só tinha 50 nova. Aí, para o cliente que já tem essas
+       velhas, apontar que foram encontradas mas não são diferentes do que ele
+       tem. E mostrar essa lista, mas dizer que é uma lista repetida."
+
+    Entregar 50 caladamente parece erro. Entregar 100 com 50 marcadas mostra
+    que a pesquisa rodou e que o filtro está esgotando.
+    """
+    from cnpj import buscar as mod
+    from cnpj import carregar, entregues
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+
+    # a base de teste tem 2 empresas em SC; uma já foi entregue à acme
+    entregues.registrar([{"cnpj": "11111111000111", "cnpj_base": "11111111"}],
+                        "lote-1", cliente="acme")
+
+    # modo antigo: a repetida sai da lista
+    so_novas = mod.buscar(db=db, uf="SC", cliente="acme")
+    assert len(so_novas) == 1
+
+    # modo novo: as duas voltam, e a repetida vem marcada
+    marcadas = mod.buscar(db=db, uf="SC", cliente="acme", marcar_entregues=True)
+    assert len(marcadas) == 2, "a repetida não voltou na lista"
+    por_cnpj = {l["cnpj"]: l for l in marcadas}
+    repetida = por_cnpj["11111111000111"]
+    nova = por_cnpj["22222222000222"]
+    assert repetida["ja_entregue"] == "SIM"
+    assert repetida["entregue_antes_em"] is not None
+    assert nova["ja_entregue"] == ""
+    assert nova["entregue_antes_em"] is None
+
+    # para OUTRO cliente, nenhuma é repetida
+    outro = mod.buscar(db=db, uf="SC", cliente="beta", marcar_entregues=True)
+    assert all(l["ja_entregue"] == "" for l in outro)
+
+
+def test_marcar_nao_multiplica_linha_por_estabelecimento(tmp_path, monkeypatch):
+    """
+    O registro guarda uma linha por estabelecimento, e uma empresa tem vários.
+    Juntar direto por cnpj_basico multiplicaria a empresa pelo número de
+    estabelecimentos dela já entregues: uma lista de 100 voltaria com 130, e
+    o cliente pagaria por duplicata.
+    """
+    from cnpj import buscar as mod
+    from cnpj import carregar, entregues
+
+    monkeypatch.setattr(carregar.config, "DADOS", tmp_path)
+    db = _base_de_teste(tmp_path)
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+
+    # a MESMA empresa, três estabelecimentos, todos já entregues
+    entregues.registrar(
+        [{"cnpj": f"1111111100{i:02d}11", "cnpj_base": "11111111"} for i in (1, 2, 3)],
+        "lote-1", cliente="acme")
+
+    linhas = mod.buscar(db=db, uf="SC", cliente="acme", marcar_entregues=True)
+    assert len(linhas) == 2, f"a junta multiplicou: {len(linhas)} linhas em vez de 2"
+    assert sum(1 for l in linhas if l["ja_entregue"] == "SIM") == 1
+
+
+def test_marcacao_chega_na_planilha(tmp_path, monkeypatch):
+    """
+    O defeito que isto pega eu criei e achei na mesma hora: a marcação
+    acontecia na CONSULTA, mas a fila guarda só a lista de CNPJs — as duas
+    colunas se perdiam no caminho e nunca chegavam no arquivo que o cliente
+    baixa. O lugar certo é na hora de escrever.
+    """
+    from openpyxl import load_workbook
+    from cnpj import entregues
+
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+
+    # o cliente já recebeu uma das duas
+    entregues.registrar([{"cnpj": "11111111000111", "cnpj_base": "11111111"}],
+                        "lote-antigo", cliente="acme")
+
+    leads = [{"cnpj": "11111111000111", "cnpj_base": "11111111",
+              "razao_social": "JÁ TINHA"},
+             {"cnpj": "22222222000222", "cnpj_base": "22222222",
+              "razao_social": "NOVA"}]
+    repetidas = entregues.marcar(leads, "acme")
+    assert repetidas == 1
+
+    feitos = exportar.escrever(leads, tmp_path / "fatia-001", ("xlsx",))
+    ws = load_workbook(feitos["xlsx"], read_only=True).active
+    linhas = list(ws.rows)
+    cab = [c.value for c in linhas[0]]
+    assert "Já Entregue?" in cab, cab
+    assert "Entregue Antes Em" in cab, cab
+
+    i = cab.index("Já Entregue?")
+    valores = {linhas[r][0].value: linhas[r][i].value for r in (1, 2)}
+    assert valores["11111111000111"] == "SIM"
+    assert valores["22222222000222"] in (None, "")
+
+
+def test_marcar_antes_de_registrar_senao_tudo_vira_repetido(tmp_path, monkeypatch):
+    """
+    Ordem importa: se registrar rodasse antes de marcar, a própria entrega
+    marcaria todas as empresas como repetidas, e toda planilha sairia dizendo
+    que o cliente já tinha tudo.
+    """
+    from cnpj import entregues
+
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+    leads = [{"cnpj": f"{i:014d}", "cnpj_base": f"{i:08d}"} for i in range(5)]
+
+    # ordem certa
+    assert entregues.marcar(leads, "acme") == 0
+    entregues.registrar(leads, "lote-1", cliente="acme")
+    assert all(l["ja_entregue"] == "" for l in leads)
+
+    # e numa segunda pesquisa elas aparecem marcadas
+    de_novo = [{"cnpj": f"{i:014d}", "cnpj_base": f"{i:08d}"} for i in range(5)]
+    assert entregues.marcar(de_novo, "acme") == 5
+    assert all(l["ja_entregue"] == "SIM" for l in de_novo)

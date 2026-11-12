@@ -42,6 +42,11 @@ def _conectar(db=None):
     return con
 
 
+def _tem_registro() -> bool:
+    from . import entregues as _e
+    return _e.ARQUIVO.exists()
+
+
 def _lista(v):
     if v is None:
         return None
@@ -51,7 +56,8 @@ def _lista(v):
 
 
 def _onde(uf, cnae, situacao, porte, municipio,
-          apenas_matriz=False, excluir_entregues=True):
+          apenas_matriz=False, excluir_entregues=True,
+          cliente=None):
     cond, par = [], []
 
     # Empresa já entregue nunca volta. A exclusão acontece AQUI, no filtro, e
@@ -62,10 +68,14 @@ def _onde(uf, cnae, situacao, porte, municipio,
         from . import entregues as _e
         if _e.ARQUIVO.exists():
             cond.append("NOT EXISTS (SELECT 1 FROM ent.entregues t "
-                        " WHERE t.cnpj_basico = e.cnpj_basico)")
+                        " WHERE t.cnpj_basico = e.cnpj_basico AND t.cliente = ?)")
+            par.append(cliente)
             # NOT EXISTS, não NOT IN: com NOT IN, um único cnpj_basico
             # nulo no registro faz a condição inteira devolver zero
             # linhas — toda pesquisa voltaria vazia, sem erro nenhum.
+            #
+            # E por cliente: a mesma empresa pode ir para dois clientes, só
+            # não duas vezes para o mesmo.
 
     # Sem isso, "as 10 maiores de SC" devolve 9 agências do mesmo banco.
     # Uma agência não é um lead; a empresa é.
@@ -114,7 +124,7 @@ def _onde(uf, cnae, situacao, porte, municipio,
     return (" WHERE " + " AND ".join(cond) if cond else ""), par
 
 
-_SELECT = """
+_CAMPOS = """
 SELECT
   e.cnpj_basico || e.cnpj_ordem || e.cnpj_dv            AS cnpj,
   em.razao_social,
@@ -133,10 +143,32 @@ SELECT
 -- CNAE. Nome fantasia, bairro, abertura, telefone, e-mail e capital social NÃO
 -- entram — tudo isso vem da API do EmpresAqui, e guardar aqui era duplicata
 -- que custava disco e memória numa máquina de 1 GB.
+"""
+
+_DE = """
 FROM estabelecimentos e
 LEFT JOIN empresas   em ON em.cnpj_basico = e.cnpj_basico
 LEFT JOIN municipios m  ON m.codigo       = e.municipio
 LEFT JOIN cnaes      c  ON c.codigo       = e.cnae_principal
+"""
+
+# As duas colunas que marcam a repetida, e a junta que as alimenta.
+#
+# A junta é com uma AGREGAÇÃO, não com a tabela crua: o registro guarda uma
+# linha por estabelecimento (cnpj), e uma empresa tem vários. Juntar direto
+# por cnpj_basico MULTIPLICARIA a linha da empresa pelo número de
+# estabelecimentos dela já entregues — uma lista de 100 voltaria com 130.
+#
+# MIN(entregue_em) é a PRIMEIRA entrega, que é a data que o cliente precisa
+# ver: "você já pegou esta empresa naquela lista".
+_MARCA_CAMPOS = """,
+  CASE WHEN ja.primeiro IS NULL THEN '' ELSE 'SIM' END   AS ja_entregue,
+  ja.primeiro                                            AS entregue_antes_em"""
+
+_MARCA_DE = """
+LEFT JOIN (SELECT cnpj_basico, MIN(entregue_em) AS primeiro
+           FROM ent.entregues WHERE cliente = ? GROUP BY cnpj_basico) ja
+       ON ja.cnpj_basico = e.cnpj_basico
 """
 
 # Uma ordem só, e estável. A ordem importa porque empresa entregue nunca
@@ -160,7 +192,8 @@ def contar(db=None, **f) -> int:
     onde, par = _onde(f.get("uf"), f.get("cnae"), f.get("situacao", "ativa"),
                       f.get("porte"), f.get("municipio"),
                       f.get("apenas_matriz", False),
-                      f.get("excluir_entregues", True))
+                      f.get("excluir_entregues", True),
+                      f.get("cliente"))
     con = _conectar(db)
     sql = "SELECT COUNT(*) FROM estabelecimentos e" + _juntas(f) + onde
     n = con.execute(sql, par).fetchone()[0]
@@ -180,10 +213,31 @@ def _juntas(f: dict) -> str:
 
 def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,
            municipio=None, apenas_matriz=False,
-           excluir_entregues=True, ordenar="cnpj", limite=None) -> list[dict]:
+           excluir_entregues=True, ordenar="cnpj", limite=None,
+           cliente=None, marcar_entregues=False) -> list[dict]:
+    """
+    `marcar_entregues` é o terceiro modo, e é de produto, não técnico.
+
+    Quando o cliente pede 100 e só 50 são novas, entregar 50 caladamente
+    parece erro. Com este modo ele recebe as 100, e as 50 que já tinha vêm
+    com `ja_entregue` e `entregue_antes_em` preenchidos — então ele vê que a
+    pesquisa rodou, que o filtro está esgotando, e que é hora de abrir o
+    critério.
+
+    `excluir_entregues` e `marcar_entregues` são opostos: o primeiro tira a
+    repetida da lista, o segundo a mantém e rotula.
+    """
+    if marcar_entregues:
+        excluir_entregues = False
     onde, par = _onde(uf, cnae, situacao, porte, municipio,
-                      apenas_matriz, excluir_entregues)
-    sql = _SELECT + onde + f" ORDER BY {ORDENS.get(ordenar, ORDENS['cnpj'])}"
+                      apenas_matriz, excluir_entregues, cliente)
+    marca = marcar_entregues and _tem_registro()
+    sql = (_CAMPOS + (_MARCA_CAMPOS if marca else "") + _DE
+           + (_MARCA_DE if marca else "") + onde
+           + f" ORDER BY {ORDENS.get(ordenar, ORDENS['cnpj'])}")
+    # O parâmetro da junta vem ANTES dos do WHERE: posição, não nome.
+    if marca:
+        par = [cliente] + par
     if limite:
         sql += f" LIMIT {int(limite)}"
     con = _conectar(db)

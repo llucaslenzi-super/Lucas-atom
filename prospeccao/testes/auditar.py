@@ -82,6 +82,15 @@ SABOTAGENS += [
     ("limpeza apaga pedido que não terminou", "servico/fila",
      "WHERE status IN ('pronto','parcial','cancelado') ",
      "WHERE status IS NOT NULL "),
+    # Registro por cliente, decidido em 12/11.
+    ("exclusão de entregues volta a ser global", "buscar",
+     "AND t.cliente = ?)", ")"),
+    ("junta da marcação multiplica a linha", "buscar",
+     "FROM ent.entregues WHERE cliente = ? GROUP BY cnpj_basico) ja",
+     "FROM ent.entregues WHERE cliente = ?) ja"),
+    ("marcação nunca marca nada", "entregues",
+     'l["ja_entregue"] = "SIM" if quando else ""',
+     'l["ja_entregue"] = ""'),
 ]
 
 

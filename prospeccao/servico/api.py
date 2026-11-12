@@ -62,6 +62,9 @@ def auth(authorization: str = Header(default="")):
 
 
 class Filtro(BaseModel):
+    # Quem recebe. O registro de "nunca volta" e por cliente desde 12/11: a
+    # mesma empresa pode ir para dois clientes, nao duas vezes para o mesmo.
+    cliente: str = Field(min_length=1, max_length=60)
     ufs: list[str] | None = None
     cnaes: list[str] | None = Field(default=None, description="máximo 2")
     municipios: list[str] | None = None
@@ -71,7 +74,8 @@ class Filtro(BaseModel):
     excluir_entregues: bool = True
 
     def kw(self) -> dict:
-        return dict(uf=self.ufs, cnae=self.cnaes, municipio=self.municipios,
+        return dict(cliente=self.cliente,
+                    uf=self.ufs, cnae=self.cnaes, municipio=self.municipios,
                     porte=self.porte, situacao=self.situacao,
                     apenas_matriz=self.apenas_matriz,
                     excluir_entregues=self.excluir_entregues)
@@ -87,6 +91,13 @@ class Pedido(BaseModel):
     blocos: list[str] | None = None
     com_apify: bool = True
     teto_usd: float = Field(default=2.0, ge=0, le=100)
+    # Entrega a repetida MARCADA em vez de esconde-la. Entregar 50 de 100
+    # caladamente parece erro; entregar 100 com 50 marcadas mostra que a
+    # pesquisa rodou e que o filtro esta esgotando.
+    marcar_repetidas: bool = True
+    # Obrigatorio quando o pedido vem por lista de CNPJs, porque ai nao ha
+    # Filtro para carregar o cliente.
+    cliente: str | None = None
 
     @field_validator("formatos")
     @classmethod
@@ -141,10 +152,22 @@ def cnaes(busca: str | None = None, prefixo: str | None = None, limite: int = 40
 
 @app.post("/v1/contar", dependencies=[Depends(auth)])
 def contar(f: Filtro):
+    """
+    Devolve as três contas que a tela precisa mostrar antes de gastar:
+    quantas batem com o filtro, quantas são novas para este cliente, e
+    quantas ele já recebeu antes.
+
+    Uma conta só não serve: "944 disponíveis" sem dizer que 340 já foram
+    entregues faz a pessoa achar que o sistema está escondendo empresa.
+    """
     try:
-        return {"total": mod_buscar.contar(**f.kw())}
+        kw = f.kw()
+        novas = mod_buscar.contar(**kw)
+        total = mod_buscar.contar(**{**kw, "excluir_entregues": False})
     except mod_buscar.CnaesDemais as e:
         raise HTTPException(422, str(e))
+    return {"total": total, "novas": novas, "repetidas": total - novas,
+            "cliente": f.cliente}
 
 
 @app.post("/v1/buscar", dependencies=[Depends(auth)])
@@ -162,11 +185,20 @@ def buscar_(f: Filtro, limite: int = 100, ordenar: str = "cnpj"):
 
 @app.post("/v1/pedidos", status_code=202, dependencies=[Depends(auth)])
 def criar_pedido(p: Pedido, idempotency_key: str | None = Header(default=None)):
+    cliente = p.cliente or (p.filtro.cliente if p.filtro else None)
+    if not cliente:
+        raise HTTPException(422, "informe o cliente")
+
     if p.cnpjs:
         lista, filtro = p.cnpjs, "planilha"
     elif p.filtro:
         try:
-            linhas = mod_buscar.buscar(limite=p.total, ordenar="cnpj", **p.filtro.kw())
+            # marcar_entregues traz a repetida na lista, rotulada. Sem ele a
+            # repetida sai fora e o cliente recebe menos do que pediu sem
+            # entender por quê.
+            linhas = mod_buscar.buscar(limite=p.total, ordenar="cnpj",
+                                       marcar_entregues=p.marcar_repetidas,
+                                       **p.filtro.kw())
         except mod_buscar.CnaesDemais as e:
             raise HTTPException(422, str(e))
         lista = [l["cnpj"] for l in linhas]
@@ -178,7 +210,7 @@ def criar_pedido(p: Pedido, idempotency_key: str | None = Header(default=None)):
 
     r = FILA.criar(lista, filtro=filtro, formatos=p.formatos, blocos=p.blocos,
                    com_apify=p.com_apify, teto_usd=p.teto_usd,
-                   chave_idem=idempotency_key,
+                   chave_idem=idempotency_key, cliente=cliente,
                    base_competencia=(_BASE["meta"] or _meta()).get("competencia"))
     if r.get("repetido"):
         raise HTTPException(409, f"pedido já existe: {r['id']}")

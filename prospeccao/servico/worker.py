@@ -95,17 +95,25 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
         l["extraido_em"] = agora
         l["base_competencia"] = comp
 
+    # Marcar ANTES de escrever e ANTES de registrar. Depois de registrar,
+    # tudo apareceria como repetido; e sem marcar, a planilha não diz ao
+    # cliente quais empresas ele já tinha.
+    cliente = p["cliente"] or entregues.CLIENTE_ANTIGO
+    repetidas = entregues.marcar(leads, cliente)
+
     destino = config.SAIDA / pid / f"fatia-{n:03d}"
     arquivos = escrever(leads, destino, json.loads(p["formatos"]),
                         json.loads(p["blocos"] or "null"))
 
     # Só AGORA as empresas entram no registro: fatia que falha não marca ninguém.
-    entregues.registrar(leads, f"{pid}-{n}", p["filtro"] or "")
+    novas = entregues.registrar(leads, f"{pid}-{n}", p["filtro"] or "",
+                                cliente=cliente)
 
     fila.concluir_fatia(pid, n, leads=len(leads), requisicoes=req, cache_hits=hits,
                         custo=custo, apify_erro=apify_erro,
                         arquivos={k: str(v) for k, v in arquivos.items()})
-    print(f"[{pid}/{n}] {len(leads)} leads · {req} req · {hits} cache · "
+    print(f"[{pid}/{n}] {len(leads)} leads ({novas} novas, {repetidas} repetidas) · "
+          f"{req} req · {hits} cache · "
           f"US$ {custo if custo is not None else '?'} · "
           f"{time.time()-t0:.0f}s" + (f" · APIFY: {apify_erro}" if apify_erro else ""),
           flush=True)

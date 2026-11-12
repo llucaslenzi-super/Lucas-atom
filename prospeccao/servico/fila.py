@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
   status         TEXT,            -- pendente|executando|pronto|erro|cancelado|pausado
   motivo         TEXT,
   base_competencia TEXT,
+  cliente        TEXT,
   criado_em      TEXT,
   concluido_em   TEXT
 );
@@ -105,11 +106,14 @@ class Fila:
         for coluna, tipo in (("apify_erro", "TEXT"), ("entregue_em", "TEXT")):
             if coluna not in tem:
                 self.db.execute(f"ALTER TABLE fatias ADD COLUMN {coluna} {tipo}")
+        tem = {c["name"] for c in self.db.execute("PRAGMA table_info(pedidos)")}
+        if "cliente" not in tem:
+            self.db.execute("ALTER TABLE pedidos ADD COLUMN cliente TEXT")
 
     # ---------------------------------------------------------- criar
     def criar(self, cnpjs: list[str], *, filtro="", formatos=("xlsx",), blocos=None,
               com_apify=True, teto_usd=2.0, chave_idem=None,
-              base_competencia=None) -> dict:
+              base_competencia=None, cliente=None) -> dict:
         """
         A lista de CNPJs é CONGELADA aqui. Se o pedido fosse só o filtro, uma
         retomada depois da troca mensal da base processaria outro conjunto e o
@@ -125,10 +129,11 @@ class Fila:
         fatias = [cnpjs[i:i + TAMANHO_LISTA]
                   for i in range(0, len(cnpjs), TAMANHO_LISTA)] or [[]]
         self.db.execute(
-            "INSERT INTO pedidos VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO pedidos VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (pid, chave_idem, filtro, len(cnpjs), TAMANHO_LISTA,
              json.dumps(list(formatos)), json.dumps(blocos), int(com_apify),
-             teto_usd, "pendente", None, base_competencia, _agora(), None))
+             teto_usd, "pendente", None, base_competencia, _agora(), None,
+             cliente))
         self.db.executemany(
             "INSERT INTO fatias (pedido_id,n,cnpjs,status) VALUES (?,?,?,'pendente')",
             [(pid, i, json.dumps(f)) for i, f in enumerate(fatias, 1)])
@@ -234,6 +239,7 @@ class Fila:
         return {
             "id": p["id"], "status": p["status"], "motivo": p["motivo"],
             "filtro": p["filtro"], "total": p["total_pedido"],
+            "cliente": p["cliente"],
             "base_competencia": p["base_competencia"],
             "fatias_total": len(fs), "fatias_prontas": len(prontas),
             "leads": sum(f["leads"] for f in fs),
