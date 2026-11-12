@@ -367,3 +367,60 @@ h2 {
 @media (prefers-reduced-motion: reduce) {
   .barra.indefinida > i { animation: none; width: 100%; opacity: .45; }
 }
+
+/* ---------- lista aberta dentro do cartão ---------- */
+.abrir {
+  width: 100%;
+  display: flex; align-items: center; gap: 9px;
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--navy);
+  background: var(--ice);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-sm);
+  padding: 10px 14px;
+  margin-top: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s, border-color .15s;
+}
+.abrir:hover { background: #eef1f9; border-color: var(--peri); }
+.abrir .seta { transition: transform .2s ease; font-size: 11px; color: var(--cinza); }
+.abrir[aria-expanded="true"] .seta { transform: rotate(90deg); }
+.abrir .quantas { margin-left: auto; font-weight: 400; color: var(--cinza); }
+
+.gaveta { margin-top: 10px; }
+/* A rolagem é da tabela, não da página: 100 empresas com 11 colunas não
+   cabem em tela nenhuma, e empurrar o cartão para fora não ajuda ninguém. */
+.rolo {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-sm);
+  background: var(--superficie);
+}
+.rolo table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.rolo th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--ice);
+  text-align: left; font-weight: 600; font-size: 11px;
+  letter-spacing: .04em; text-transform: uppercase;
+  color: var(--cinza);
+  padding: 9px 12px; white-space: nowrap;
+  border-bottom: 1px solid var(--borda);
+}
+.rolo td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--borda);
+  /* Uma linha por empresa. Deixar quebrar fazia cada razão social virar
+     quatro linhas e cabiam três empresas na tela — para uma lista de 100,
+     isso não serve para nada. O valor inteiro fica no title. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 230px;
+}
+.rolo td:first-child { max-width: none; }
+.rolo tr:last-child td { border-bottom: 0; }
+.rolo tbody tr:hover { background: color-mix(in srgb, var(--ice) 60%, transparent); }
+.rolo tr.repetida { background: color-mix(in srgb, var(--mint) 24%, transparent); }
+.rolo .vazio { color: #b5bad0; }

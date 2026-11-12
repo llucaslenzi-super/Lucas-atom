@@ -28,6 +28,13 @@ A senha está fora do repositório. Ela é constante no nó `Roteia` do workflow
 4. **Entregues** — procura um CNPJ e diz se ele já foi para algum cliente,
    quando, e em qual lista.
 
+Em **Minhas listas**, cada lista abre dentro do cartão: *Ver as empresas
+desta lista* mostra a tabela com as 11 colunas que valem numa tela, em linha
+única, com o valor inteiro no `title`. O que aparece ali é o **mesmo arquivo**
+que a pessoa baixa — o CSV guardado no n8n, não uma segunda consulta à base —
+então não há como a tela mostrar uma coisa e a planilha trazer outra. Linha
+em verde é empresa que já tinha ido para aquele cliente.
+
 ## Planilha: o arquivo manda
 
 Mandou planilha, vão **todas** as empresas dela. Não se pergunta quantas,
@@ -104,6 +111,22 @@ mesma tabela, cada atualização arrastaria megabytes. Separados, a atualizaçã
 **Retenção:** arquivo e índice são apagados com 7 dias; o espelho de
 entregues, com 180. É o que mantém os 50 MB de Data Table da instância sob
 controle.
+
+## Os workflows são código
+
+`prospeccao/n8n/publicar.py` tem os cinco workflows escritos, com o motivo de
+cada decisão ao lado. Para recriar ou corrigir qualquer um:
+
+```bash
+cd prospeccao/n8n
+export N8N_JWT=...  APP_SENHA=...  PONTE_TOKEN=...
+python3 publicar.py              # os cinco
+python3 publicar.py api app      # só esses
+```
+
+É idempotente: atualiza pelo nome o que existe, cria o que falta, e move
+para o projeto Missner — Data Table é por projeto, e sem a transferência o
+nó não acha a tabela. Nenhum segredo entra no arquivo.
 
 ## Para trocar a interface depois
 

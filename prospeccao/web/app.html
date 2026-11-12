@@ -677,13 +677,35 @@
              + " na planilha com a data da lista anterior — sinal de que o filtro"
              + " está esgotando.</div>";
         }
-        h += "<div style='display:flex;gap:9px;flex-wrap:wrap'>";
+        // Uma linha por LISTA, não por arquivo: xlsx e csv da mesma fatia
+        // são o mesmo conteúdo em dois formatos.
+        var porFatia = {};
         ls.forEach(function (L) {
-          h += "<a class='b b-fantasma b-pequeno' href='" + BAIXAR + encodeURIComponent(L.chave) + "'>"
-             + "&darr; " + esc(String(L.formato).toUpperCase()) + " · lista " + (+L.fatia)
-             + " <span class='num'>(" + (+L.empresas || 0) + ")</span></a>";
+          (porFatia[L.fatia] = porFatia[L.fatia] || []).push(L);
         });
-        h += "</div>";
+        Object.keys(porFatia).sort(function (x, y) { return x - y; })
+          .forEach(function (n) {
+            var arqs = porFatia[n];
+            var csv = arqs.filter(function (L) { return L.formato === "csv"; })[0];
+            h += "<div style='margin-bottom:10px'>";
+            h += "<div style='display:flex;gap:9px;flex-wrap:wrap;align-items:center'>";
+            h += "<strong style='font-size:13px'>Lista " + (+n) + "</strong>"
+               + "<span class='dica num'>" + (+arqs[0].empresas || 0) + " empresas</span>";
+            arqs.forEach(function (L) {
+              h += "<a class='b b-fantasma b-pequeno' href='" + BAIXAR
+                 + encodeURIComponent(L.chave) + "'>&darr; "
+                 + esc(String(L.formato).toUpperCase()) + "</a>";
+            });
+            h += "</div>";
+            if (csv) {
+              h += "<button class='abrir' data-ver='" + esc(csv.chave) + "'"
+                 + " aria-expanded='false'><span class='seta'>&#9654;</span>"
+                 + "Ver as empresas desta lista"
+                 + "<span class='quantas num'>" + (+arqs[0].empresas || 0) + "</span></button>";
+              h += "<div class='gaveta' id='g-" + esc(csv.chave) + "' hidden></div>";
+            }
+            h += "</div>";
+          });
       }
       if (p.status === "em_curso" || p.status === "pendente") {
         h += progresso(p);
@@ -695,6 +717,76 @@
     });
     alvo.innerHTML = h;
     liga();
+    ligaAberturas();
+  }
+
+  // ───────── abrir a lista dentro do cartão ─────────
+  // O que aparece aqui é o MESMO arquivo que a pessoa baixa, lido do n8n:
+  // não é uma segunda consulta à base, então não há como a tela mostrar uma
+  // coisa e a planilha trazer outra.
+  var aberto = {};          // chave -> html já montado, para não rebuscar
+
+  function ligaAberturas() {
+    document.querySelectorAll("[data-ver]").forEach(function (b) {
+      b.onclick = function () { alterna(b, b.dataset.ver); };
+    });
+  }
+
+  function alterna(botao, chave) {
+    var g = E("g-" + chave);
+    if (!g) return;
+    if (!g.hidden) {
+      g.hidden = true;
+      botao.setAttribute("aria-expanded", "false");
+      return;
+    }
+    g.hidden = false;
+    botao.setAttribute("aria-expanded", "true");
+    if (aberto[chave]) { g.innerHTML = aberto[chave]; return; }
+
+    g.innerHTML = "<div class='esq' style='width:70%'></div>"
+                + "<div class='esq' style='width:85%;margin-top:8px'></div>"
+                + "<div class='esq' style='width:60%;margin-top:8px'></div>";
+    chamar("lista", { chave: chave }).then(function (r) {
+      aberto[chave] = tabelaDaLista(r);
+      g.innerHTML = aberto[chave];
+    }).catch(function (e) {
+      g.innerHTML = "<div class='aviso aviso-erro' style='margin-top:0'>"
+                  + esc((e && e.message) || "não consegui abrir a lista") + "</div>";
+    });
+  }
+
+  function tabelaDaLista(r) {
+    var cols = r.colunas || [];
+    var linhas = r.linhas || [];
+    if (!linhas.length) {
+      return "<div class='aviso aviso-info' style='margin-top:0'>"
+           + "Esta lista está vazia.</div>";
+    }
+    var iMarca = cols.indexOf("Já Entregue?");
+    var h = "<div class='rolo'><table><thead><tr>";
+    cols.forEach(function (c) { h += "<th>" + esc(c) + "</th>"; });
+    h += "</tr></thead><tbody>";
+    linhas.forEach(function (l) {
+      var rep = iMarca >= 0 && String(l[iMarca] || "").toUpperCase() === "SIM";
+      h += "<tr" + (rep ? " class='repetida'" : "") + ">";
+      l.forEach(function (v, i) {
+        var t = String(v == null ? "" : v);
+        var num = i === 0 ? " num" : "";
+        // title com o valor inteiro: a célula corta, o dado não se perde
+        h += "<td class='" + (t ? "" : "vazio") + num + "'"
+           + (t ? " title='" + esc(t) + "'" : "") + ">"
+           + (t ? esc(t) : "—") + "</td>";
+      });
+      h += "</tr>";
+    });
+    h += "</tbody></table></div>";
+    h += "<div class='dica' style='margin-top:8px'>"
+       + "<span class='num'>" + linhas.length + "</span> empresas · "
+       + esc(String(cols.length)) + " colunas aqui, " + "as 61 na planilha baixada."
+       + (iMarca >= 0 ? " As linhas em verde já tinham ido para este cliente." : "")
+       + "</div>";
+    return h;
   }
 
   // ───────── entregues ─────────
