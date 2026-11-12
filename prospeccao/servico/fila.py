@@ -161,10 +161,21 @@ class Fila:
         partida do worker: worker vivo mas travado deixava a fatia em
         'executando' para sempre, e o pedido nunca terminava.
 
-        E aceita pedido 'pausado'. Antes não: devolver_fatia punha o pedido em
-        'pausado' e esta consulta só olhava 'pendente' e 'executando', então
-        um token inválido no meio de uma fatia CONGELAVA o pedido para sempre,
-        sem erro visível em lugar nenhum.
+        E aceita pedido em QUALQUER estado menos 'cancelado'. Era lista
+        branca — 'pendente', 'executando', 'pausado' — e isso travou duas
+        vezes:
+
+          · 'pausado' não estava na lista, e um token inválido congelava o
+            pedido para sempre;
+          · um pedido marcado 'pronto' por engano, com fatia ainda aberta,
+            ficava invisível. Aconteceu na VM: o worker antigo marcou
+            'pronto' numa fatia que deu erro, a fatia voltou para a fila e
+            nunca mais foi pega.
+
+        Lista branca precisa de alguém acertar todos os estados futuros.
+        Lista negra de um só item — 'cancelado', que é o único em que NÃO se
+        deve trabalhar — se cura sozinha. Fatia aberta é trabalho a fazer,
+        qualquer que seja o rótulo do pedido.
         """
         limite = _agora_menos(MINUTOS_ORFA)
         cur = self.db.execute("""
@@ -173,7 +184,7 @@ class Fila:
               SELECT f.pedido_id, f.n FROM fatias f JOIN pedidos p ON p.id=f.pedido_id
               WHERE (f.status='pendente'
                      OR (f.status='executando' AND f.iniciada_em < ?))
-                AND p.status IN ('pendente','executando','pausado')
+                AND p.status <> 'cancelado'  
               ORDER BY p.criado_em, f.n LIMIT 1)
             RETURNING *""", [_agora(), limite])
         r = cur.fetchone()

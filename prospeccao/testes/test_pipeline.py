@@ -1411,3 +1411,35 @@ def test_ponte_cria_pedido_com_filtro_no_plural(tmp_path, monkeypatch):
     assert p["cliente"] == "acme"
     # e o filtro gravado já está no formato que a consulta entende
     assert "uf" in json.loads(p["filtro"])
+
+
+def test_fatia_aberta_em_pedido_marcado_pronto_ainda_e_pega(tmp_path):
+    """
+    Estado inconsistente trava a fila se o filtro for lista branca. Na VM o
+    worker antigo marcou um pedido como 'pronto' com a fatia em erro; a fatia
+    voltou para a fila e ficou invisível para sempre, porque 'pronto' não
+    estava na lista de estados aceitos.
+
+    Fatia aberta é trabalho a fazer, qualquer que seja o rótulo do pedido.
+    """
+    from servico.fila import Fila
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    r = f.criar([f"{i:014d}" for i in range(100)], filtro="t", cliente="a")
+    f.db.execute("UPDATE pedidos SET status='pronto' WHERE id=?", [r["id"]])
+    f.db.commit()
+
+    assert f.proxima_fatia() is not None, (
+        "fatia aberta ficou invisível porque o pedido estava rotulado 'pronto'")
+
+
+def test_fatia_de_pedido_cancelado_nao_e_pega(tmp_path):
+    """O único estado em que não se deve trabalhar."""
+    from servico.fila import Fila
+
+    f = Fila(tmp_path / "jobs.sqlite")
+    r = f.criar([f"{i:014d}" for i in range(100)], filtro="t", cliente="a")
+    f.db.execute("UPDATE pedidos SET status='cancelado' WHERE id=?", [r["id"]])
+    f.db.commit()
+
+    assert f.proxima_fatia() is None, "trabalhou num pedido cancelado"
