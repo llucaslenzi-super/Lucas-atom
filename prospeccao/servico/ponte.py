@@ -56,11 +56,6 @@ class SemCredencial(RuntimeError):
 # laço no log e esperando uma lista que nunca vem.
 PERMANENTES = (ValueError, TypeError, KeyError, base64.binascii.Error)
 
-# Usado só pela auditoria de sabotagem, para trocar PERMANENTES por algo
-# que nunca casa e provar que sem ele o pedido fica em laço.
-class _NadaDisso(Exception):
-    pass
-
 
 def _log(msg: str) -> None:
     print(f"[ponte] {msg}", flush=True)
@@ -289,6 +284,8 @@ def _trava():
 
 
 def main() -> int:
+    from servico.worker import conferir_ambiente
+    conferir_ambiente()
     trava = _trava()
     fila = Fila(config.DADOS / "jobs.sqlite")
     _log(f"n8n em {N8N} · ciclo de {INTERVALO}s")

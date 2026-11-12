@@ -123,7 +123,36 @@ def processar(fila: Fila, fatia, api: EmpresAqui) -> None:
           flush=True)
 
 
+def conferir_ambiente() -> None:
+    """
+    Falha na PARTIDA se não puder escrever onde escreve.
+
+    Sem isto o worker descobre o problema na hora de salvar a primeira lista,
+    depois de já ter gastado as requisições do EmpresAqui — e foi o que
+    aconteceu: um worker que subiu antes de CNPJ_SAIDA existir no ambiente
+    ficou horas de pé, pegou um pedido, consultou a API e só então morreu com
+    "Read-only file system" apontando para dentro do repositório, que o
+    systemd monta somente-leitura.
+
+    Barato de verificar, caro de descobrir tarde.
+    """
+    for rotulo, pasta in (("CNPJ_SAIDA", config.SAIDA),
+                          ("CNPJ_DADOS", config.DADOS)):
+        try:
+            pasta.mkdir(parents=True, exist_ok=True)
+            teste = pasta / ".escrita"
+            teste.write_text("x")
+            teste.unlink()
+        except OSError as e:
+            print(f"ERRO FATAL: não consigo escrever em {pasta} ({rotulo}): {e}\n"
+                  f"  Se este caminho está dentro do repositório, o ambiente do "
+                  f"processo não tem {rotulo} — confira /etc/misner.env e "
+                  f"reinicie o serviço.", flush=True)
+            raise SystemExit(1)
+
+
 def main() -> int:
+    conferir_ambiente()
     trava = _trava()
     fila = Fila(config.DADOS / "jobs.sqlite")
     orfas = fila.retomar_orfas()

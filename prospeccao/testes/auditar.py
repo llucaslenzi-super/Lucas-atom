@@ -103,7 +103,8 @@ SABOTAGENS += [
      "filtro = mod_buscar.normalizar_filtro(json.loads(linha.get(\"filtro\") or \"{}\"))",
      "filtro = json.loads(linha.get(\"filtro\") or \"{}\")"),
     ("pedido impossível fica em laço para sempre", "servico/ponte",
-     "        except PERMANENTES as e:", "        except _NadaDisso as e:"),
+     "PERMANENTES = (ValueError, TypeError, KeyError, base64.binascii.Error)",
+     "PERMANENTES = ()"),
 ]
 
 
