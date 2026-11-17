@@ -115,7 +115,6 @@
               <span class="dica">Dois no máximo. Escolher um setor inteiro conta
                 como um — e traz todas as atividades dentro dele.</span>
             </div>
-            <div id="contagem" class="aviso aviso-info" style="margin:0" hidden></div>
           </div>
 
           <div id="bloco-planilha" hidden>
@@ -378,6 +377,7 @@
       h += "<div class='op" + (sel ? " escolhida" : "")
          + (o.classe ? " " + o.classe : "")
          + (i === m.foco ? " foco" : "") + "' data-i='" + i + "'>"
+         + (o.cod ? "<span class='cod'>" + esc(o.cod) + "</span>" : "")
          + "<span class='rot'>" + esc(o.rotulo) + "</span>"
          + (o.qtd != null ? "<span class='qtd'>" + Number(o.qtd).toLocaleString("pt-BR")
                             + "</span>" : "")
@@ -437,7 +437,8 @@
       var o = porValor[v] || { rotulo: v };
       var el = document.createElement("span");
       el.className = "pil-sel";
-      el.innerHTML = "<span>" + esc(o.curto || o.rotulo) + "</span>"
+      el.innerHTML = (o.cod ? "<span class='cod'>" + esc(o.cod) + "</span>" : "")
+                   + "<span>" + esc(o.curto || o.rotulo) + "</span>"
                    + "<button type='button' aria-label='tirar'>×</button>";
       el.querySelector("button").addEventListener("click", function (ev) {
         ev.stopPropagation();
@@ -551,12 +552,14 @@
     var l = (OPC.setores || []).slice()
       .sort(function (x, y) { return y[2] - x[2]; })
       .map(function (s) {
-        return { v: s[0], rotulo: s[1], curto: s[1], qtd: s[2], classe: "setor" };
+        return { v: s[0], cod: s[0], rotulo: s[1], curto: s[1], qtd: s[2],
+                 classe: "setor" };
       });
     return l.concat((OPC.cnaes || []).slice()
       .sort(function (x, y) { return y[2] - x[2]; })
       .map(function (c) {
-        return { v: c[0], rotulo: c[1], curto: c[1], qtd: c[2], classe: "filha" };
+        return { v: c[0], cod: c[0], rotulo: c[1], curto: c[1], qtd: c[2],
+                 classe: "filha" };
       }));
   }
 
@@ -588,7 +591,6 @@
         o.removeAttribute("aria-pressed");
       });
       b.setAttribute("aria-pressed", "true");
-      contagem();
       guardar();
     });
   });
@@ -686,7 +688,7 @@
     E("tela-entrar").hidden = true;
     E("app").hidden = false;
     // As opções vêm em paralelo: a tela não espera 885 KB para abrir.
-    carregaOpcoes().then(function () { recuperar(); contagem(); });
+    carregaOpcoes().then(recuperar);
     recuperar();
     var h = (location.hash || "").replace("#", "");
     if (h === "listas" || h === "entregues") pagina(h, true);
@@ -738,18 +740,16 @@
         ? "Só as cidades dos estados escolhidos."
         : "Escolha os estados primeiro.";
       ligaFontes();
-      contagem();
     }
   });
   criaMenu("cidade", {
     multi: true, dica: "todas as cidades dos estados escolhidos",
-    opcoes: fonteCidades, vazio: "Escolha um estado primeiro.",
-    aoMudar: contagem
+    opcoes: fonteCidades, vazio: "Escolha um estado primeiro."
   });
   criaMenu("cnaes", {
     multi: true, teto: 2, dica: "setor ou atividade — digite para achar",
     opcoes: fonteCnaes, vazio: "Carregando as atividades…",
-    aoMudar: function () { contaCnae(); contagem(); }
+    aoMudar: contaCnae
   });
 
   CAMPOS.forEach(function (id) {
@@ -834,33 +834,6 @@
     var por = {};
     (fonte(true) || []).forEach(function (o) { por[o.v] = o.curto || o.rotulo; });
     return vs.map(function (v) { return esc(por[v] || v); }).join(" · ");
-  }
-
-  // ───────── a contagem, enquanto a pessoa mexe ─────────
-  // Vem da matriz que a VM publica, e é EXATA para estado + atividade.
-  // Com cidade escolhida vira teto, porque município × CNAE dá 1,4 milhão de
-  // células e não atravessa a rede. E conta quantas EXISTEM, não quantas são
-  // novas para aquele cliente — isso só a VM sabe, e aparece no cartão depois.
-  function contagem() {
-    var el = E("contagem");
-    if (!el) return;
-    var ufs = valores("estados"), cns = valores("cnaes");
-    if (!OPC || (!ufs.length && !cns.length)) { el.hidden = true; return; }
-
-    var total = 0;
-    (OPC.matriz || []).forEach(function (c) {
-      if (ufs.length && ufs.indexOf(c[0]) < 0) return;
-      if (cns.length && !cns.some(function (k) { return c[1].indexOf(k) === 0; })) return;
-      total += c[2];
-    });
-    var teto = valores("cidade").length > 0;
-    var q = quantas();
-    el.innerHTML = (teto ? "No máximo <strong class='num'>" : "<strong class='num'>")
-      + total.toLocaleString("pt-BR") + "</strong> empresas batem com este filtro"
-      + (teto ? ", e menos com as cidades escolhidas" : "")
-      + " — tu vai levar <strong class='num'>" + q + "</strong>."
-      + (total > q ? " Pedir de novo traz as seguintes." : "");
-    el.hidden = false;
   }
 
   // ───────── passo 3 ─────────

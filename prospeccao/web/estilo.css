@@ -518,3 +518,19 @@ h2 {
    o primeiro clique fora fecha mas não aciona o que está embaixo, e quanto
    mais ela cobre, mais vezes isso acontece. */
 .lista-op { max-height: 248px; }
+
+/* O código do CNAE, à vista. É ele que a pessoa confere depois na coluna
+   CNAE da planilha, e sem ele a escolha vira um nome solto. Cidade não tem
+   código visível de propósito: "8317" não diz nada a ninguém. */
+.lista-op .op .cod,
+.pil-sel .cod {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--cinza);
+  min-width: 62px;
+  flex-shrink: 0;
+}
+.lista-op .op.setor .cod { color: var(--peri); font-weight: 700; }
+.pil-sel .cod { min-width: 0; color: var(--peri); font-weight: 700; }
+.lista-op .op.filha .rot { padding-left: 0; }
+.lista-op .op.filha .cod { padding-left: 14px; min-width: 76px; }
