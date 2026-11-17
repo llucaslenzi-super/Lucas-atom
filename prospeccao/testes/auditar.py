@@ -91,6 +91,9 @@ SABOTAGENS += [
     ("marcação nunca marca nada", "entregues",
      'l["ja_entregue"] = "SIM" if quando else ""',
      'l["ja_entregue"] = ""'),
+    # A pesquisa repetida tem de ANDAR, nao devolver as mesmas marcadas.
+    ("ordem volta a ignorar quem ja foi entregue", "buscar",
+     'ORDEM_MARCADA = "ja_entregue, cnpj"', 'ORDEM_MARCADA = "cnpj"'),
     # Fechar o pedido no n8n volta a ser tiro unico: cartao gira para sempre.
     ("fechamento do pedido volta a ser tiro unico", "servico/ponte",
      '''            "WHERE status NOT IN ('pendente','executando') "''',

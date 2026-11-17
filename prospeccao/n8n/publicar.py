@@ -262,10 +262,11 @@ if (acao === 'criar') {
       return [{ json: { ok: false, erro: 'no máximo 2 CNAEs', http: 400 } }];
   }
 }
-// Arredonda para múltiplo de 100: toda lista entregue tem no máximo 100
-// empresas, e isso é constante do produto, não configuração do cliente.
-const bruto = Number(b.total) || 100;
-const total = Math.min(10000, Math.max(100, Math.ceil(bruto / 100) * 100));
+// Três tamanhos de lote, e nada mais. Número livre é de onde sai o 10.000
+// por engano — e 10.000 empresas são quase três horas de consulta. A
+// entrega continua de 100 em 100: 50 é uma lista, 200 são duas.
+const LOTES = [50, 100, 200];
+const total = LOTES.indexOf(Number(b.total)) >= 0 ? Number(b.total) : 100;
 
 return [{ json: {
   ok: true, acao: acao,

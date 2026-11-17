@@ -188,10 +188,22 @@ LEFT JOIN (SELECT cnpj_basico, MIN(entregue_em) AS primeiro
        ON ja.cnpj_basico = e.cnpj_basico
 """
 
-# Uma ordem só, e estável. A ordem importa porque empresa entregue nunca
-# volta: quem fica fora dos primeiros 100 vai para a lista seguinte. Ordenar
-# por CNPJ garante que a fatia 1 de hoje é a mesma fatia 1 de amanhã.
+# Uma ordem só, e estável. Ordenar por CNPJ garante que a fatia 1 de hoje é a
+# mesma fatia 1 de amanhã.
 ORDENS = {"cnpj": "cnpj"}
+
+# No modo que MARCA a repetida, a ordem ganha um critério na frente: quem
+# nunca foi para este cliente vem primeiro.
+#
+# Sem isso, o lote é sempre o começo da base por CNPJ — e no segundo pedido
+# do mesmo filtro voltam AS MESMAS empresas, todas marcadas. Num filtro de
+# 8.113 empresas pedindo 200, o cliente nunca alcançaria as 7.913 restantes:
+# cada pesquisa devolveria as mesmas 200 até o fim dos tempos.
+#
+# `ja_entregue` é '' para nova e 'SIM' para repetida, e '' ordena antes de
+# 'SIM'. Então a repetida só entra para COMPLETAR o lote, quando as novas
+# acabaram — que é exatamente quando a marcação tem algo a dizer.
+ORDEM_MARCADA = "ja_entregue, cnpj"
 
 
 def contar(db=None, **f) -> int:
@@ -251,7 +263,8 @@ def buscar(db=None, uf=None, cnae=None, situacao="ativa", porte=None,
     marca = marcar_entregues and _tem_registro()
     sql = (_CAMPOS + (_MARCA_CAMPOS if marca else "") + _DE
            + (_MARCA_DE if marca else "") + onde
-           + f" ORDER BY {ORDENS.get(ordenar, ORDENS['cnpj'])}")
+           + " ORDER BY "
+           + (ORDEM_MARCADA if marca else ORDENS.get(ordenar, ORDENS["cnpj"])))
     # O parâmetro da junta vem ANTES dos do WHERE: posição, não nome.
     if marca:
         par = [cliente] + par

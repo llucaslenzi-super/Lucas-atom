@@ -424,3 +424,22 @@ h2 {
 .rolo tbody tr:hover { background: color-mix(in srgb, var(--ice) 60%, transparent); }
 .rolo tr.repetida { background: color-mix(in srgb, var(--mint) 24%, transparent); }
 .rolo .vazio { color: #b5bad0; }
+
+/* ---------- escolha de três ---------- */
+.botoes { display: flex; gap: 8px; }
+.botoes button {
+  flex: 1; max-width: 110px;
+  font: inherit; font-size: 15px; font-weight: 600;
+  padding: 11px 0;
+  border: 1.5px solid var(--borda);
+  border-radius: var(--r-sm);
+  background: var(--superficie);
+  color: var(--tinta);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.botoes button:hover { border-color: var(--peri); }
+.botoes button[aria-pressed="true"] {
+  background: var(--navy); border-color: var(--navy); color: #fff;
+}

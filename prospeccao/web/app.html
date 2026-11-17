@@ -130,10 +130,15 @@
           </div>
 
           <div style="margin-top:18px">
-            <div class="campo" id="campo-quantas" style="max-width:320px">
-              <label for="quantas">Quantas empresas</label>
-              <input type="number" id="quantas" value="100" min="100" max="10000" step="100">
-              <span class="dica">Entregue em listas de 100. 300 viram três listas.</span>
+            <div class="campo" id="campo-quantas">
+              <label>Quantas empresas nesta pesquisa</label>
+              <div class="botoes" id="quantas" role="group">
+                <button type="button" data-n="50">50</button>
+                <button type="button" data-n="100" aria-pressed="true">100</button>
+                <button type="button" data-n="200">200</button>
+              </div>
+              <span class="dica">Entregue em listas de 100: 200 viram duas listas.
+                Pedir de novo o mesmo filtro traz as seguintes, nunca as mesmas.</span>
             </div>
           </div>
         </div>
@@ -212,10 +217,11 @@
   }
 
   // ───────── rascunho: sair no meio não perde nada ─────────
-  var CAMPOS = ["cliente", "estados", "cidade", "cnaes", "quantas"];
+  var CAMPOS = ["cliente", "estados", "cidade", "cnaes"];
+  var QUANTAS = [50, 100, 200];
   function guardar() {
     try {
-      var r = { origem: estado.origem };
+      var r = { origem: estado.origem, quantas: quantas() };
       CAMPOS.forEach(function (id) { r[id] = E(id).value; });
       sessionStorage.setItem("missner.rascunho", JSON.stringify(r));
     } catch (e) { /* aba privada: segue sem rascunho */ }
@@ -225,9 +231,36 @@
       var r = JSON.parse(sessionStorage.getItem("missner.rascunho") || "{}");
       CAMPOS.forEach(function (id) { if (r[id]) E(id).value = r[id]; });
       if (r.origem) estado.origem = r.origem;
+      if (QUANTAS.indexOf(+r.quantas) >= 0) marcaQuantas(+r.quantas);
     } catch (e) {}
     contaCnae();
   }
+
+  // ───────── quantas empresas ─────────
+  // Três opções e nada mais. Campo de digitar número é de onde sai o 10.000
+  // por engano, e 10.000 empresas são três horas de consulta.
+  function marcaQuantas(n) {
+    document.querySelectorAll("#quantas button").forEach(function (b) {
+      if (+b.dataset.n === n) b.setAttribute("aria-pressed", "true");
+      else b.removeAttribute("aria-pressed");
+    });
+  }
+
+  function quantas() {
+    var b = document.querySelector("#quantas [aria-pressed='true']");
+    var n = b ? +b.dataset.n : 100;
+    return QUANTAS.indexOf(n) >= 0 ? n : 100;
+  }
+
+  document.querySelectorAll("#quantas button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      document.querySelectorAll("#quantas button").forEach(function (o) {
+        o.removeAttribute("aria-pressed");
+      });
+      b.setAttribute("aria-pressed", "true");
+      guardar();
+    });
+  });
 
   // ───────── navegação ─────────
   function pagina(nome, semHistorico) {
@@ -441,7 +474,7 @@
     return "<tr><td class='chave'>" + k + "</td><td class='valor'>" + v + "</td></tr>";
   }
   function montaResumo() {
-    var q = Math.max(1, +E("quantas").value || 100);
+    var q = quantas();
     var listas = Math.ceil(q / 100);
     var h = "";
     h += linha("Cliente", esc(E("cliente").value) || "—");
@@ -467,9 +500,10 @@
         h += linha("Listas de 100", "uma a cada 100 do arquivo");
       }
     }
-    // Enriquecimento não é opção: o pipeline roda inteiro, sempre. O que
-    // continua existindo é o teto, que é a trava de custo.
-    h += linha("Contatos na internet", "Google Maps e Instagram · teto de US$ 5 por lista");
+    // Nada de dinheiro na tela do cliente. O enriquecimento roda sempre, e o
+    // gasto fica registrado por lista em fatias.custo_usd, para ser olhado
+    // fora daqui.
+    h += linha("Contatos", "Google Maps e Instagram");
     E("resumo").innerHTML = h;
     if (estado.origem === "planilha") {
       E("b-avancar").textContent = planilha.lida
@@ -520,7 +554,7 @@
 
     var corpo = {
       cliente: E("cliente").value.trim(),
-      total: Math.max(1, +E("quantas").value || 100),
+      total: quantas(),
       com_apify: "sim"
     };
     var pronto = Promise.resolve();
@@ -626,6 +660,35 @@
     return h;
   }
 
+  // Os três estados do filtro, vistos pelo que voltou na entrega. É aqui que
+  // a marcação vira informação: com a ordem "nova primeiro", repetida só
+  // aparece quando as novas acabaram — então ela diz que o filtro está no fim.
+  function esgotamento(ls, p) {
+    var fatias = {};
+    ls.forEach(function (L) { fatias[L.fatia] = L; });   // xlsx e csv são a mesma
+    var total = 0, repet = 0;
+    Object.keys(fatias).forEach(function (k) {
+      total += +fatias[k].empresas || 0;
+      repet += +fatias[k].repetidas || 0;
+    });
+    if (!repet) return "";
+    var novas = Math.max(0, total - repet);
+
+    if (!novas) {
+      return "<div class='aviso aviso-atencao' style='margin:0 0 14px'>"
+        + "<strong>Este filtro esgotou para este cliente.</strong> Nenhuma"
+        + " empresa nova: as <span class='num'>" + total + "</span> desta"
+        + " entrega já tinham ido para ele antes, e vêm marcadas na planilha"
+        + " com a data. Para continuar, abra o critério — outros estados,"
+        + " outras cidades ou outro CNAE.</div>";
+    }
+    return "<div class='aviso aviso-info' style='margin:0 0 14px'>"
+      + "<strong><span class='num'>" + novas + "</span> novas</strong> e"
+      + " <span class='num'>" + repet + "</span> que já tinham ido para este"
+      + " cliente. Restam poucas empresas novas neste filtro — as repetidas"
+      + " vêm marcadas na planilha, com a data em que ele as recebeu.</div>";
+  }
+
   function descreve(p) {
     if (p.planilha_nome) return "A partir de " + esc(p.planilha_nome);
     try {
@@ -669,14 +732,7 @@
 
       var ls = p.listas || [];
       if (ls.length) {
-        var repet = ls.reduce(function (a, L) { return a + (+L.repetidas || 0); }, 0);
-        if (repet > 0) {
-          h += "<div class='aviso aviso-info' style='margin:0 0 14px'>"
-             + "<span class='num'>" + repet + "</span> empresa(s) desta entrega já"
-             + " tinham ido para este cliente antes. Elas vêm assim mesmo, marcadas"
-             + " na planilha com a data da lista anterior — sinal de que o filtro"
-             + " está esgotando.</div>";
-        }
+        h += esgotamento(ls, p);
         // Uma linha por LISTA, não por arquivo: xlsx e csv da mesma fatia
         // são o mesmo conteúdo em dois formatos.
         var porFatia = {};
@@ -844,7 +900,7 @@
     estado.enviado = false;
     estado.origem = null;
     ["estados", "cidade", "cnaes"].forEach(function (id) { E(id).value = ""; });
-    E("quantas").value = "100";
+    marcaQuantas(100);
     try { E("arquivo").value = ""; } catch (e) {}
     planilha = { n: null, descartados: 0, lida: false };
     E("previa").hidden = true;

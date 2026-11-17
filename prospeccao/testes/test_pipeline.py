@@ -1937,3 +1937,69 @@ def test_pedido_que_nao_fechou_na_entrega_fecha_no_pulso(tmp_path, monkeypatch):
     marcas.clear()
     ponte.reportar_progresso(fila)
     assert marcas == [], "continua batendo num pedido que já foi fechado"
+
+
+# ───────────────── nova primeiro: a pesquisa repetida tem de andar
+
+def test_pesquisa_repetida_traz_as_seguintes_e_nao_as_mesmas(tmp_path, monkeypatch):
+    """
+    O defeito que o lote de 200 desenterra.
+
+    A consulta ordenava só por CNPJ. No segundo pedido do mesmo filtro, as
+    primeiras por CNPJ são justamente as que já foram entregues — então o
+    lote voltava IGUAL ao primeiro, inteiro marcado como repetido, e o
+    cliente nunca alcançava o resto do filtro.
+
+    Com a ordem certa, a repetida só entra para COMPLETAR o lote.
+    """
+    from cnpj import buscar, entregues
+
+    db = _base_de_teste(tmp_path)
+    reg = tmp_path / "entregues.duckdb"
+    monkeypatch.setattr(entregues, "ARQUIVO", reg)
+
+    # as três de SC, por CNPJ: 11111111..., 22222222...
+    todas = buscar.buscar(db=db, uf="SC", cliente="acme", marcar_entregues=True)
+    assert [l["cnpj"][:8] for l in todas] == ["11111111", "22222222"]
+
+    # a primeira vai para o cliente
+    entregues.registrar([{"cnpj": todas[0]["cnpj"], "cnpj_base": "11111111"}],
+                        "lote-1", cliente="acme")
+
+    # pedindo UMA, tem de vir a NOVA, não a primeira por CNPJ
+    uma = buscar.buscar(db=db, uf="SC", cliente="acme",
+                        marcar_entregues=True, limite=1)
+    assert uma[0]["cnpj"][:8] == "22222222", (
+        f"voltou {uma[0]['cnpj'][:8]}, que já tinha ido para este cliente — "
+        "a pesquisa repetida não anda")
+    assert uma[0]["ja_entregue"] == ""
+
+    # pedindo as DUAS, a repetida entra depois, para completar, e marcada
+    duas = buscar.buscar(db=db, uf="SC", cliente="acme", marcar_entregues=True)
+    assert [l["cnpj"][:8] for l in duas] == ["22222222", "11111111"]
+    assert [l["ja_entregue"] for l in duas] == ["", "SIM"]
+    assert duas[1]["entregue_antes_em"], "repetida sem a data da entrega anterior"
+
+
+def test_filtro_esgotado_devolve_tudo_marcado(tmp_path, monkeypatch):
+    """
+    Quando não há mais nenhuma nova, a lista vem completa e inteira marcada —
+    e é esse o sinal que a tela usa para dizer que o filtro acabou. Voltar
+    vazio pareceria defeito.
+    """
+    from cnpj import buscar, entregues
+
+    db = _base_de_teste(tmp_path)
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+
+    todas = buscar.buscar(db=db, uf="SC", cliente="acme", marcar_entregues=True)
+    entregues.registrar([{"cnpj": l["cnpj"], "cnpj_base": l["cnpj"][:8]}
+                         for l in todas], "lote-1", cliente="acme")
+
+    de_novo = buscar.buscar(db=db, uf="SC", cliente="acme", marcar_entregues=True)
+    assert len(de_novo) == 2, "esgotado não pode voltar vazio"
+    assert all(l["ja_entregue"] == "SIM" for l in de_novo)
+
+    # e para OUTRO cliente as mesmas empresas continuam novas
+    outro = buscar.buscar(db=db, uf="SC", cliente="beta", marcar_entregues=True)
+    assert all(l["ja_entregue"] == "" for l in outro)
