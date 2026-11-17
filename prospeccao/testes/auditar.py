@@ -98,6 +98,12 @@ SABOTAGENS += [
     ("junta de municipios volta a entrar sempre", "buscar",
      "    if any(not str(x).strip().isdigit()",
      "    if True or any(not str(x).strip().isdigit()"),
+    # Cancelar para o que falta, e so o que falta.
+    ("cancelar joga fora a lista ja pronta", "servico/fila",
+     "WHERE pedido_id=? AND status='pendente'",
+     "WHERE pedido_id=?"),
+    ("ponte deixa de executar o cancelamento pedido na tela", "servico/ponte",
+     "    cancelar(fila)\n    puxar(fila)", "    puxar(fila)"),
     # A pesquisa repetida tem de ANDAR, nao devolver as mesmas marcadas.
     ("ordem volta a ignorar quem ja foi entregue", "buscar",
      'ORDEM_MARCADA = "ja_entregue, cnpj"', 'ORDEM_MARCADA = "cnpj"'),

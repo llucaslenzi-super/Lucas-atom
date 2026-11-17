@@ -1027,6 +1027,7 @@
       pronto:   ["pil-ok", "pronta"],
       em_curso: ["pil-curso", "em curso"],
       pendente: ["pil-fila", "na fila"],
+    cancelando:["pil-curso", "cancelando"],
       parcial:  ["pil-curso", "parcial"],
       erro:     ["pil-erro", "com erro"],
       cancelado:["pil-fila", "cancelado"]
@@ -1163,6 +1164,11 @@
       }
       if (p.status === "em_curso" || p.status === "pendente") {
         h += progresso(p);
+        h += "<button class='b-texto' style='padding:6px 0;font-size:13px'"
+           + " data-cancelar='" + esc(p.pedido_id) + "'>Cancelar o que falta</button>";
+      } else if (p.status === "cancelando") {
+        h += "<div class='dica'>Cancelando. A lista que já está sendo gerada"
+           + " termina — matá-la no meio jogaria fora as consultas já feitas.</div>";
       } else if (!ls.length && p.status === "pronto") {
         h += "<div class='dica'>As listas deste pedido expiraram — o arquivo"
            + " fica sete dias no servidor. Peça de novo para gerar outras.</div>";
@@ -1172,6 +1178,7 @@
     alvo.innerHTML = h;
     liga();
     ligaAberturas();
+    ligaCancelar();
   }
 
   // ───────── abrir a lista dentro do cartão ─────────
@@ -1241,6 +1248,33 @@
        + (iMarca >= 0 ? " As linhas em verde já tinham ido para este cliente." : "")
        + "</div>";
     return h;
+  }
+
+  // O cancelamento é pedido aqui e executado na VM, que é a única que sabe
+  // o que já rodou. Para depois da lista corrente: o que ficou pronto
+  // continua baixável.
+  function ligaCancelar() {
+    document.querySelectorAll("[data-cancelar]").forEach(function (b) {
+      b.onclick = function () {
+        if (b.disabled) return;
+        b.disabled = true;
+        b.textContent = "Cancelando…";
+        chamar("cancelar", { pedido_id: b.dataset.cancelar })
+          .then(function () { carregarListas(); })
+          .catch(function (e) {
+            b.disabled = false;
+            b.textContent = "Cancelar o que falta";
+            alertaNoCartao(b, (e && e.message) || "não consegui cancelar");
+          });
+      };
+    });
+  }
+
+  function alertaNoCartao(perto, msg) {
+    var d = document.createElement("div");
+    d.className = "aviso aviso-erro";
+    d.textContent = msg;
+    perto.parentNode.insertBefore(d, perto.nextSibling);
   }
 
   // ───────── entregues ─────────

@@ -281,7 +281,7 @@ const b = $json.body || {};
 if (b.senha !== SENHA) return [{ json: { ok: false, erro: 'senha recusada', http: 401 } }];
 
 const acao = String(b.acao || '');
-if (['entrar','criar','pedidos','entregues','lista'].indexOf(acao) < 0)
+if (['entrar','criar','pedidos','entregues','lista','cancelar'].indexOf(acao) < 0)
   return [{ json: { ok: false, erro: 'ação desconhecida', http: 400 } }];
 
 const digitos = String(b.cnpj || '').replace(/[^0-9]/g, '');
@@ -314,14 +314,15 @@ return [{ json: {
   // A chave da lista a abrir na tela. Sentinela quando nao e esta a acao,
   // para o no de leitura nao arrastar um arquivo a toa.
   chave: acao === 'lista' ? String(b.chave || '').slice(0, 120) : '___nenhuma___',
+  pedido_id: acao === 'cancelar' ? String(b.pedido_id || '').slice(0, 60) : '',
   cliente: String(b.cliente || '').trim().slice(0, 80),
   filtro: filtro, planilha_nome: String(b.planilha_nome || '').slice(0, 120),
   planilha_b64: planilha, total: total,
   // Enriquecimento deixou de ser opcao em 12/11: toda lista roda o
   // pipeline inteiro. O teto de US$ 5 por lista e a trava que sobra.
   com_apify: 'sim',
-  pedido_id: 'p-' + Date.now().toString(36) + '-' +
-             Math.random().toString(36).slice(2, 7),
+  novo_id: 'p-' + Date.now().toString(36) + '-' +
+           Math.random().toString(36).slice(2, 7),
   criado_em: new Date().toISOString()
 } }];""" % json.dumps(SENHA)
 
@@ -419,11 +420,24 @@ apiwf = {
    webhook("Pede", "POST", "prospeccao-api", [0, 0]),
    codigo("Roteia", JS_ROTEIA, [224, 0]),
    se("Autorizado?", "={{ $json.ok }}", [448, 0]),
+   se("É cancelar?", "={{ $json.acao === 'cancelar' }}", [672, -120]),
+   # Marca a linha para a ponte executar. Quem cancela de verdade é a VM:
+   # ela é a única que sabe o que já rodou e o que ainda está na fila.
+   no("Marca cancelando", "dataTable", 1.1, [896, -340], {
+     "resource": "row", "operation": "update", "dataTableId": PEDIDOS,
+     "matchType": "allConditions",
+     "filters": {"conditions": [
+       {"keyName": "pedido_id", "condition": "eq",
+        "keyValue": "={{ $json.pedido_id }}"},
+       {"keyName": "status", "condition": "neq", "keyValue": "pronto"}]},
+     "columns": {"mappingMode": "defineBelow",
+                 "value": {"status": "cancelando"}}}),
+   responde("Cancelando", "={{ { ok: true } }}", [1120, -340]),
    se("É criar?", "={{ $json.acao === 'criar' }}", [672, -120]),
    no("Cria pedido", "dataTable", 1.1, [896, -220], {
      "resource": "row", "operation": "insert", "dataTableId": PEDIDOS,
      "columns": {"mappingMode": "defineBelow", "value": {
-       "pedido_id": "={{ $json.pedido_id }}", "status": "pendente",
+       "pedido_id": "={{ $json.novo_id }}", "status": "pendente",
        "filtro": "={{ $json.filtro }}", "total": "={{ $json.total }}",
        "formatos": "xlsx,csv",
        "planilha_nome": "={{ $json.planilha_nome }}",
@@ -432,7 +446,7 @@ apiwf = {
        "com_apify": "={{ $json.com_apify }}",
        "teto_usd": 5,
        "criado_em": "={{ $json.criado_em }}"}}}),
-   responde("Criado", "={{ { ok: true, pedido_id: $('Roteia').first().json.pedido_id } }}",
+   responde("Criado", "={{ { ok: true, pedido_id: $('Roteia').first().json.novo_id } }}",
             [1120, -220]),
    # "todas as linhas": a Data Table não aceita notEquals na leitura, então
    # a condição sempre-verdadeira é a data ser posterior ao ano 2000.
@@ -453,10 +467,11 @@ apiwf = {
    responde("Negado", "={{ { erro: $json.erro } }}", [672, 120],
             "={{ $json.http || 401 }}"),
  ],
- "connections": (lambda c: (liga_se(c, "Autorizado?", "É criar?", "Negado"),
+ "connections": (lambda c: (liga_se(c, "Autorizado?", "É cancelar?", "Negado"),
+                            liga_se(c, "É cancelar?", "Marca cancelando", "É criar?"),
                             liga_se(c, "É criar?", "Cria pedido", "Lê pedidos"), c)[-1])(
    liga(("Pede", "Roteia"), ("Roteia", "Autorizado?"),
-        ("Cria pedido", "Criado"), ("Lê pedidos", "Lê listas"),
+        ("Marca cancelando", "Cancelando"), ("Cria pedido", "Criado"), ("Lê pedidos", "Lê listas"),
         ("Lê listas", "Lê entregues"), ("Lê entregues", "Lê arquivo"),
         ("Lê arquivo", "Monta"), ("Monta", "Responde"))),
 }

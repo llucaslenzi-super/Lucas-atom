@@ -106,6 +106,13 @@ def pedidos_pendentes() -> list[dict]:
                         params={"filter": filtro, "limit": 50}))
 
 
+def pedidos_a_cancelar() -> list[dict]:
+    filtro = json.dumps({"type": "and", "filters": [
+        {"columnName": "status", "condition": "eq", "value": "cancelando"}]})
+    return _linhas(_api(f"data-tables/{TABELA_PEDIDOS}/rows",
+                        params={"filter": filtro, "limit": 50}))
+
+
 def marcar_pedido(linha_id, **campos) -> None:
     filtro = json.dumps({"type": "and", "filters": [
         {"columnName": "id", "condition": "eq", "value": linha_id}]})
@@ -175,6 +182,29 @@ def criar_local(fila: Fila, linha: dict) -> dict:
                       formatos=formatos, cliente=cliente,
                       com_apify=com_apify, teto_usd=teto_usd,
                       chave_idem=str(linha["id"]))
+
+
+def cancelar(fila: Fila) -> int:
+    """
+    O cancelamento é pedido na tela e executado aqui.
+
+    A tela só marca a linha; quem cancela de verdade é a VM, que é a única
+    que sabe o que já rodou e o que ainda está na fila.
+
+    Para depois da fatia corrente: o que já ficou pronto continua entregável,
+    e a lista que está no meio termina — matá-la ali desperdiçaria as
+    consultas já pagas e deixaria um arquivo pela metade.
+    """
+    feitos = 0
+    for linha in pedidos_a_cancelar():
+        pid = (linha.get("pedido_id") or "").strip()
+        if pid:
+            fila.cancelar(pid)
+        marcar_pedido(linha["id"], status="cancelado",
+                      motivo="cancelado na tela; o que já estava pronto continua aqui")
+        _log(f"pedido {linha['id']} ({pid or 'sem fila'}) cancelado")
+        feitos += 1
+    return feitos
 
 
 def puxar(fila: Fila) -> int:
@@ -449,6 +479,23 @@ def _trava():
     return fh
 
 
+def um_ciclo(fila: Fila) -> None:
+    """
+    Um ciclo da ponte, nesta ordem e por este motivo:
+
+    cancelar primeiro, senão um pedido cancelado na tela ainda seria puxado
+    e começaria a gastar consulta; entregar por último, para que a fatia que
+    acabou de ficar pronta saia neste mesmo ciclo em vez de esperar o
+    próximo.
+
+    Está numa função sozinha para poder ser testada: dentro do `while True`
+    do main, apagar uma destas linhas não falharia teste nenhum.
+    """
+    cancelar(fila)
+    puxar(fila)
+    entregar(fila)
+
+
 def main() -> int:
     from servico.worker import conferir_ambiente
     conferir_ambiente()
@@ -463,8 +510,7 @@ def main() -> int:
 
     while True:
         try:
-            puxar(fila)
-            entregar(fila)
+            um_ciclo(fila)
         except SemCredencial as e:
             # Sem credencial não há o que tentar; dormir e avisar é melhor que
             # sair em laço quente e esconder o motivo no reinício do systemd.

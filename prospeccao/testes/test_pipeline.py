@@ -2036,3 +2036,69 @@ def test_junta_de_municipios_so_entra_quando_o_filtro_vem_por_nome(tmp_path):
     assert buscar._juntas({"municipio": ["8317"]}) == ""
     assert "municipios" in buscar._juntas({"municipio": ["GASPAR"]})
     assert "municipios" in buscar._juntas({"municipio": ["8317", "GASPAR"]})
+
+
+def test_cancelar_para_o_que_falta_e_preserva_o_que_ficou_pronto(
+        tmp_path, monkeypatch):
+    """
+    Com pedido de horas, cancelar deixa de ser luxo. Mas cancelar não pode
+    jogar fora o que já foi gerado: as consultas daquela lista já foram
+    pagas, e o arquivo já existe.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    marcas = []
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda linha, **c: marcas.append((linha, c)))
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    cnpjs = [f"{i + 70000000000000:014d}" for i in range(250)]   # 3 fatias
+    r = fila.criar(cnpjs, filtro="t", cliente="acme", formatos=("csv",),
+                   chave_idem="55")
+
+    # a primeira fica pronta
+    f1 = fila.proxima_fatia()
+    leads = [{"cnpj": c, "cnpj_base": c[:8]} for c in json.loads(f1["cnpjs"])]
+    feitos = exportar.escrever(leads, tmp_path / "s" / "f1", ("csv",))
+    fila.concluir_fatia(r["id"], f1["n"], leads=len(leads),
+                        arquivos={k: str(v) for k, v in feitos.items()})
+
+    monkeypatch.setattr(ponte, "pedidos_a_cancelar",
+                        lambda: [{"id": "55", "pedido_id": r["id"]}])
+    assert ponte.cancelar(fila) == 1
+    assert marcas[0][1]["status"] == "cancelado"
+
+    estados = dict(fila.db.execute(
+        "SELECT status, COUNT(*) FROM fatias WHERE pedido_id=? GROUP BY 1",
+        [r["id"]]).fetchall())
+    assert estados.get("pronto") == 1, "jogou fora a lista que já estava feita"
+    assert estados.get("cancelado") == 2, f"não parou o que faltava: {estados}"
+
+    # e a que ficou pronta continua entregável
+    monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
+    monkeypatch.setattr(ponte, "publicar_entregues", lambda *a, **k: None)
+    assert ponte.entregar(fila) == 1
+    # a fila não oferece mais nada para o worker
+    assert fila.proxima_fatia() is None
+
+
+def test_o_ciclo_da_ponte_cancela_antes_de_puxar(monkeypatch):
+    """
+    A ordem do ciclo é decisão, não acaso: cancelar antes de puxar, senão um
+    pedido cancelado na tela ainda seria puxado e começaria a gastar consulta.
+
+    Testar as funções soltas não pega quem apaga a chamada do laço.
+    """
+    from servico import ponte
+
+    ordem = []
+    monkeypatch.setattr(ponte, "cancelar", lambda f: ordem.append("cancelar"))
+    monkeypatch.setattr(ponte, "puxar", lambda f: ordem.append("puxar"))
+    monkeypatch.setattr(ponte, "entregar", lambda f: ordem.append("entregar"))
+
+    ponte.um_ciclo(object())
+    assert ordem == ["cancelar", "puxar", "entregar"], ordem
