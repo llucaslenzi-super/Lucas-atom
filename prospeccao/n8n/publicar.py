@@ -41,6 +41,7 @@ PEDIDOS   = rl("prospeccao_pedidos")
 LISTAS    = rl("prospeccao_listas")
 ARQUIVOS  = rl("prospeccao_arquivos")
 ENTREGUES = rl("prospeccao_entregues")
+OPCOES    = rl("prospeccao_opcoes")
 
 def no(nome, tipo, v, pos, params, **extra):
     d = {"name": nome, "type": "n8n-nodes-base." + tipo, "typeVersion": v,
@@ -234,6 +235,45 @@ app = {
  ],
  "connections": liga(("Abre", "Pega HTML"), ("Pega HTML", "Serve")),
 }
+
+# ─────────────────────────────────────────────── Opções (menus da tela)
+# Sem senha, de propósito: é a lista de municípios e de CNAEs do país, dado
+# público, e o que vale protege é o que está atrás dela. Deixar aberto
+# permite o cache do navegador, que é o que faz isto custar UMA execução por
+# sessão em vez de uma por tecla digitada.
+JS_OPCOES = """const por = {};
+$input.all().forEach(function (i) {
+  const l = i.json || {};
+  if (l.nome) por[l.nome] = l.json;
+});
+// Monta o JSON por CONCATENAÇÃO: são 885 KB, e mandar o nó analisar e
+// reserializar tudo isso a cada chamada é trabalho jogado fora.
+const partes = ['municipios', 'cnaes', 'setores', 'matriz'].map(function (k) {
+  return JSON.stringify(k) + ':' + (por[k] || '[]');
+});
+partes.push(JSON.stringify('assinatura') + ':' +
+            JSON.stringify(String(por.assinatura || '')));
+return [{ json: { corpo: '{' + partes.join(',') + '}' } }];"""
+
+opcoes = {
+ "name": "Prospecção · Opções",
+ "settings": {"executionOrder": "v1"},
+ "nodes": [
+   webhook("Pede opções", "GET", "prospeccao-opcoes", [0, 0]),
+   le("Lê opções", OPCOES,
+      [{"keyName": "nome", "condition": "neq", "keyValue": "___"}], [224, 0]),
+   codigo("Junta", JS_OPCOES, [448, 0]),
+   responde("Entrega", "={{ $json.corpo }}", [672, 0], texto=True,
+            cabecalhos={"Content-Type": "application/json; charset=utf-8",
+                        # Um dia: as listas mudam uma vez por mês, na recarga
+                        # da base. Sem isto seria uma execução por sessão e
+                        # por aba aberta.
+                        "Cache-Control": "public, max-age=86400"}),
+ ],
+ "connections": liga(("Pede opções", "Lê opções"), ("Lê opções", "Junta"),
+                     ("Junta", "Entrega")),
+}
+
 
 # ─────────────────────────────────────────────── API
 JS_ROTEIA = """const SENHA = %s;
@@ -449,8 +489,9 @@ def publicar(wf):
     return wid
 
 if __name__ == "__main__":
-    quais = sys.argv[1:] or ["guardar", "baixar", "limpar", "app", "api"]
+    quais = sys.argv[1:] or ["guardar", "baixar", "limpar", "app", "api",
+                             "opcoes"]
     todos = {"guardar": guardar, "baixar": baixar, "limpar": limpar,
-             "app": app, "api": apiwf}
+             "app": app, "api": apiwf, "opcoes": opcoes}
     for k in quais:
         publicar(todos[k])

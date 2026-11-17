@@ -2003,3 +2003,36 @@ def test_filtro_esgotado_devolve_tudo_marcado(tmp_path, monkeypatch):
     # e para OUTRO cliente as mesmas empresas continuam novas
     outro = buscar.buscar(db=db, uf="SC", cliente="beta", marcar_entregues=True)
     assert all(l["ja_entregue"] == "" for l in outro)
+
+
+def test_cidade_por_codigo_casa_exato_e_por_nome_continua_por_pedaco(tmp_path):
+    """
+    Por nome, "SAO" trazia São Paulo e qualquer outra que contivesse as três
+    letras — e ninguém via, porque a lista voltava cheia. O menu da tela manda
+    código, e código tem de casar exato.
+    """
+    from cnpj import buscar
+
+    db = _base_de_teste(tmp_path)
+    # 8317 = GASPAR (SC), 7107 = SAO PAULO (SP)
+    assert buscar.contar(db=db, municipio="8317", excluir_entregues=False) == 2
+    assert buscar.contar(db=db, municipio="7107", excluir_entregues=False) == 1
+    assert buscar.contar(db=db, municipio=["8317", "7107"],
+                         excluir_entregues=False) == 3
+    # código inexistente não casa com nada, em vez de casar por parecença
+    assert buscar.contar(db=db, municipio="9999", excluir_entregues=False) == 0
+    # e o caminho por nome, que a API ainda aceita, continua por pedaço
+    assert buscar.contar(db=db, municipio="GASP", excluir_entregues=False) == 2
+
+
+def test_junta_de_municipios_so_entra_quando_o_filtro_vem_por_nome(tmp_path):
+    """
+    Por código, a coluna já está em `estabelecimentos`. Cruzar a tabela de
+    municípios ali seria repetir o erro que custou 2,5 s contra 0,129 s na
+    contagem — junta que o filtro não usa.
+    """
+    from cnpj import buscar
+
+    assert buscar._juntas({"municipio": ["8317"]}) == ""
+    assert "municipios" in buscar._juntas({"municipio": ["GASPAR"]})
+    assert "municipios" in buscar._juntas({"municipio": ["8317", "GASPAR"]})

@@ -91,6 +91,13 @@ SABOTAGENS += [
     ("marcação nunca marca nada", "entregues",
      'l["ja_entregue"] = "SIM" if quando else ""',
      'l["ja_entregue"] = ""'),
+    # Cidade por codigo: exato, e sem junta a toa.
+    ("cidade por codigo volta a casar por parecenca", "buscar",
+     'alt.append(f"e.municipio IN ({\',\'.join(\'?\' * len(codigos))})")',
+     'alt.append("(" + " OR ".join(["UPPER(m.descricao) LIKE ?"] * len(codigos)) + ")")'),
+    ("junta de municipios volta a entrar sempre", "buscar",
+     "    if any(not str(x).strip().isdigit()",
+     "    if True or any(not str(x).strip().isdigit()"),
     # A pesquisa repetida tem de ANDAR, nao devolver as mesmas marcadas.
     ("ordem volta a ignorar quem ja foi entregue", "buscar",
      'ORDEM_MARCADA = "ja_entregue, cnpj"', 'ORDEM_MARCADA = "cnpj"'),

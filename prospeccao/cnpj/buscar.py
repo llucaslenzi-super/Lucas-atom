@@ -135,8 +135,24 @@ def _onde(uf, cnae, situacao, porte, municipio,
         par += cods
 
     if municipio := _lista(municipio):
-        cond.append(f"({' OR '.join(['UPPER(m.descricao) LIKE ?'] * len(municipio))})")
-        par += [f"%{x.upper()}%" for x in municipio]
+        # Código casa EXATO; nome continua casando por pedaço.
+        #
+        # O menu da tela manda código, e é o certo: por nome, "Rio" trazia
+        # Rio do Sul, Rio Negrinho e Rio de Janeiro na mesma pesquisa, sem
+        # ninguém perceber. Por código ainda sai a junta com `municipios` da
+        # consulta, que é a mesma economia que derrubou a contagem de 2,5 s
+        # para 0,129 s.
+        codigos = [str(x).strip() for x in municipio
+                   if str(x).strip().isdigit()]
+        nomes = [x for x in municipio if not str(x).strip().isdigit()]
+        alt = []
+        if codigos:
+            alt.append(f"e.municipio IN ({','.join('?' * len(codigos))})")
+            par += codigos
+        if nomes:
+            alt.append("(" + " OR ".join(["UPPER(m.descricao) LIKE ?"] * len(nomes)) + ")")
+            par += [f"%{str(x).upper()}%" for x in nomes]
+        cond.append("(" + " OR ".join(alt) + ")")
 
     return (" WHERE " + " AND ".join(cond) if cond else ""), par
 
@@ -235,7 +251,10 @@ def _juntas(f: dict) -> str:
     sql = ""
     if f.get("porte"):
         sql += " LEFT JOIN empresas em ON em.cnpj_basico = e.cnpj_basico"
-    if f.get("municipio"):
+    # Só quando o filtro vier por NOME: por código, a coluna já está em
+    # `estabelecimentos` e a junta seria 28 milhões de linhas cruzadas à toa.
+    if any(not str(x).strip().isdigit()
+           for x in (_lista(f.get("municipio")) or [])):
         sql += " LEFT JOIN municipios m ON m.codigo = e.municipio"
     return sql
 

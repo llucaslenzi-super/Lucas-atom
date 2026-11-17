@@ -443,3 +443,73 @@ h2 {
 .botoes button[aria-pressed="true"] {
   background: var(--navy); border-color: var(--navy); color: #fff;
 }
+
+/* ---------- menu com busca e seleção múltipla ---------- */
+.escolhe { position: relative; }
+.escolhe .caixa {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-sm);
+  background: var(--superficie);
+  cursor: text;
+  transition: border-color .15s, box-shadow .15s;
+}
+.escolhe .caixa:hover { border-color: #c7cde0; }
+.escolhe.aberta .caixa {
+  border-color: var(--peri);
+  box-shadow: 0 0 0 3px rgba(79,93,170,.16);
+}
+.escolhe input {
+  flex: 1; min-width: 120px;
+  border: 0; outline: 0; padding: 4px 2px;
+  font: inherit; background: transparent; color: var(--tinta);
+}
+.escolhe input::placeholder { color: #9aa0bd; }
+
+.pil-sel {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--mint-pale); color: var(--navy-deep);
+  border-radius: var(--r-pil);
+  padding: 4px 6px 4px 11px;
+  font-size: 13px; font-weight: 600;
+  max-width: 100%;
+}
+.pil-sel span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pil-sel button {
+  border: 0; background: none; cursor: pointer; padding: 0 2px;
+  font: inherit; font-size: 15px; line-height: 1;
+  color: var(--navy); opacity: .55;
+}
+.pil-sel button:hover { opacity: 1; }
+
+.lista-op {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 6px);
+  max-height: 300px; overflow: auto;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-sm);
+  box-shadow: var(--sh-lg);
+  padding: 5px;
+}
+.lista-op .op {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 9px 11px; border-radius: 6px;
+  cursor: pointer; font-size: 14px;
+}
+.lista-op .op:hover, .lista-op .op.foco { background: var(--ice); }
+.lista-op .op.escolhida { background: var(--mint-pale); font-weight: 600; }
+.lista-op .op .rot { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lista-op .op .qtd { font-size: 12px; color: var(--cinza); font-variant-numeric: tabular-nums; }
+.lista-op .op.setor { font-weight: 600; }
+.lista-op .op.setor .rot::after {
+  content: " · setor inteiro";
+  font-weight: 400; color: var(--cinza); font-size: 12px;
+}
+.lista-op .op.filha .rot { padding-left: 16px; }
+.lista-op .nada { padding: 14px 12px; color: var(--cinza); font-size: 13px; }
+.lista-op .mais {
+  padding: 9px 12px; color: var(--cinza); font-size: 12px;
+  border-top: 1px solid var(--borda); margin-top: 4px;
+}

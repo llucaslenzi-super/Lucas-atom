@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cnpj import config, entregues, exportar
+from cnpj import config, entregues, exportar, opcoes
 from servico.fila import Fila
 
 INTERVALO = int(os.environ.get("PONTE_INTERVALO", "60"))
@@ -41,6 +41,7 @@ SEGREDO = (os.environ.get("PONTE_TOKEN") or "").strip()
 
 TABELA_PEDIDOS = os.environ.get("N8N_TABELA_PEDIDOS", "7xKe4gdNqDX4SKEC")
 TABELA_ENTREGUES = os.environ.get("N8N_TABELA_ENTREGUES", "Eq3UO4lZqR7Ev2ML")
+TABELA_OPCOES = os.environ.get("N8N_TABELA_OPCOES", "AUKYz30URdF0WFua")
 WEBHOOK_GUARDAR = f"{N8N}/webhook/prospeccao-guardar"
 
 # Tipos MIME por formato, para o navegador do cliente saber o que recebeu.
@@ -256,6 +257,52 @@ def publicar_entregues(cliente: str, lote: str, cnpjs: list[str],
              corpo={"data": linhas[i:i + 100]})
 
 
+def _assinatura_da_base() -> str:
+    """Muda quando a base muda. É o que evita republicar 885 KB a cada boot."""
+    arq = config.DADOS / "cnpj.duckdb"
+    try:
+        st = arq.stat()
+        return f"{int(st.st_mtime)}-{st.st_size}"
+    except OSError:
+        return "sem-base"
+
+
+def publicar_opcoes(forcar: bool = False) -> bool:
+    """
+    Manda para o n8n as listas que alimentam os menus da tela: municípios,
+    CNAEs, setores e a matriz de contagem.
+
+    A tela não alcança a VM, e só a VM sabe quais cidades e quais CNAEs têm
+    empresa de verdade. Então quem calcula é aqui, uma vez por carga da base.
+
+    São 885 KB. Republicar isso a cada partida do serviço seria desperdício,
+    então a assinatura da base decide: mesma base, não mexe.
+    """
+    if not TABELA_OPCOES:
+        _log("N8N_TABELA_OPCOES não configurada — menus não publicados")
+        return False
+
+    assinatura = _assinatura_da_base()
+    if not forcar:
+        atual = _linhas(_api(f"data-tables/{TABELA_OPCOES}/rows",
+                             params={"filter": json.dumps({"type": "and", "filters": [
+                                 {"columnName": "nome", "condition": "eq",
+                                  "value": "assinatura"}]})}))
+        if atual and (atual[0].get("json") or "") == assinatura:
+            return False
+
+    t0 = time.time()
+    tudo = opcoes.tudo()
+    for nome, conteudo in list(tudo.items()) + [("assinatura", assinatura)]:
+        _api(f"data-tables/{TABELA_OPCOES}/rows/upsert", metodo="POST", corpo={
+            "filter": {"type": "and", "filters": [
+                {"columnName": "nome", "condition": "eq", "value": nome}]},
+            "data": {"nome": nome, "json": conteudo}})
+    tamanho = sum(len(v.encode()) for v in tudo.values()) / 1024
+    _log(f"menus publicados · {tamanho:.0f} KB · {time.time() - t0:.1f}s")
+    return True
+
+
 def reportar_progresso(fila: Fila) -> int:
     """
     Empurra o andamento dos pedidos em curso para a linha deles no n8n.
@@ -408,6 +455,11 @@ def main() -> int:
     trava = _trava()
     fila = Fila(config.DADOS / "jobs.sqlite")
     _log(f"n8n em {N8N} · ciclo de {INTERVALO}s")
+    try:
+        publicar_opcoes()
+    except Exception as e:
+        # Menu desatualizado é ruim; ponte que não sobe é pior.
+        _log(f"menus não publicados: {type(e).__name__}: {e}")
 
     while True:
         try:
