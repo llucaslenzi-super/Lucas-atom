@@ -513,3 +513,8 @@ h2 {
   padding: 9px 12px; color: var(--cinza); font-size: 12px;
   border-top: 1px solid var(--borda); margin-top: 4px;
 }
+
+/* A lista não pode ser tão alta que esconda o formulário inteiro atrás dela:
+   o primeiro clique fora fecha mas não aciona o que está embaixo, e quanto
+   mais ela cobre, mais vezes isso acontece. */
+.lista-op { max-height: 248px; }

@@ -316,7 +316,11 @@
     m.campo.addEventListener("focus", function () { abre(m); });
     m.campo.addEventListener("input", function () { m.foco = -1; desenha(m); });
     m.campo.addEventListener("keydown", function (ev) { tecla(m, ev); });
-    document.addEventListener("click", function (ev) {
+    // mousedown e não click: fecha no instante em que o dedo desce, não
+    // quando solta. O primeiro clique fora não chega ao botão de baixo de
+    // jeito nenhum — é assim em todo menu suspenso —, mas pelo menos a lista
+    // some na hora e o segundo clique funciona sem parecer travado.
+    document.addEventListener("mousedown", function (ev) {
       if (!raiz.contains(ev.target)) fecha(m);
     });
     pilulas(m);
@@ -408,7 +412,11 @@
     }
     m.campo.value = "";
     pilulas(m);
-    desenha(m);
+    // Chegou no teto, ou é de escolha única: não há mais o que escolher, e a
+    // lista aberta TAPA o que vem abaixo no formulário. O clique seguinte
+    // morria nela — a pessoa tinha de clicar duas vezes sem entender por quê.
+    if (!m.cfg.multi || (m.cfg.teto && m.valores.length >= m.cfg.teto)) fecha(m);
+    else desenha(m);
     if (m.cfg.aoMudar) m.cfg.aoMudar(m.valores);
     guardar();
   }
