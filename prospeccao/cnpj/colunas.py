@@ -164,3 +164,31 @@ def juntar(valor, formato="csv"):
         return str(valor)
     itens = [str(v).strip() for v in valor if v not in (None, "", [])]
     return SEPARADOR.get(formato, ";").join(dict.fromkeys(itens))
+
+
+# ─────────────────────────────────────────── layout de importação
+
+# O arquivo que entra direto na ferramenta do cliente, com os cabeçalhos que
+# ela espera. Não é um recorte das 78 colunas: é outro layout, com outros
+# nomes e outra ordem, montado a partir das mesmas linhas.
+#
+# `nome` junta TODOS os nomes ligados à empresa — sócios, responsáveis,
+# diretores —, e `telefone` junta todos os telefones. Uma linha por empresa.
+IMPORTAR = [
+    ("empresa",  "razao_social"),
+    ("cnpj",     "cnpj"),
+    ("email",    "email"),
+    ("cidade",   "cidade"),
+    ("uf",       "estado"),
+    ("país",     None),            # fixo: a base é só do Brasil
+    ("nome",     "socios"),
+    ("telefone", "contatos"),
+]
+
+PAIS_FIXO = "BR"
+
+# Dentro de uma célula, vários valores se separam por barra vertical. A
+# coluna já é separada por ponto e vírgula, e repetir o mesmo caractere nos
+# dois papéis é o jeito mais rápido de um importador partir a linha no lugar
+# errado. Barra vertical não aparece em nome de empresa nem em telefone.
+SEP_IMPORTAR = "|"

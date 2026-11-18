@@ -63,6 +63,36 @@ A barra mostra `empresas consultadas / total` e, embaixo, em que lista está.
 Enquanto ninguém começou — pedido ainda na fila — ela fica indeterminada, em
 vez de fingir uma fração que não existe.
 
+## Três arquivos por lista
+
+| botão | o que é |
+|---|---|
+| **XLSX** | a planilha completa, 63 colunas, para olhar |
+| **CSV** | a mesma coisa em texto |
+| **PARA IMPORTAR** | oito colunas, no layout da ferramenta do cliente |
+
+O **para importar** não é um recorte do XLSX: é outro layout, com outros
+nomes e outra ordem.
+
+```
+empresa ; cnpj ; email ; cidade ; uf ; país ; nome ; telefone
+```
+
+- `país` sai preenchido com `BR` — a base é só do Brasil, e a coluna não
+  existe no cadastro.
+- `nome` junta **todos** os nomes ligados à empresa: sócios, responsáveis,
+  diretores.
+- `telefone` junta **todos** os telefones.
+- Vários valores na mesma célula vêm separados por **barra vertical** (`|`).
+  O ponto e vírgula separa coluna, e usar o mesmo caractere nos dois papéis
+  é o jeito mais rápido de um importador partir a linha no lugar errado.
+
+**Um cuidado com o `nome`:** vêm os sócios do cadastro da Receita, e parte
+deles é pessoa jurídica — holdings e empresas de participação. Numa linha
+real: `MARCIO JOSE GIRARDI|ANDERSON GIRARDI|GIRARDI PARTICIPACOES LTDA`. Se
+isso virar "nome do responsável" numa abordagem, uma em cada três mensagens
+vai para o nome de uma holding.
+
 ## As regras que a tela torna visíveis
 
 - **Toda lista tem no máximo 100 empresas.** Pedido de 300 vira três listas.

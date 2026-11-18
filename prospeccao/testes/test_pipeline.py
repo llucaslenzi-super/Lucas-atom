@@ -2102,3 +2102,80 @@ def test_o_ciclo_da_ponte_cancela_antes_de_puxar(monkeypatch):
 
     ponte.um_ciclo(object())
     assert ordem == ["cancelar", "puxar", "entregar"], ordem
+
+
+# ───────────────── o layout de importação
+
+def test_layout_de_importacao_sai_com_as_oito_colunas_pedidas(tmp_path):
+    """
+    Outro layout, não um recorte das 78 colunas: outros nomes, outra ordem.
+    O cabeçalho é o que a ferramenta do cliente espera, e errar um nome aqui
+    quebra a importação inteira sem dizer por quê.
+    """
+    import csv as _csv
+    from cnpj import exportar
+
+    linhas = [{
+        "cnpj": "00074023000140", "razao_social": "ESTAMPARIA CORES & TONS LTDA",
+        "email": ["a@b.com", "c@d.com"], "cidade": "GUABIRUBA", "estado": "SC",
+        "socios": ["CARLOS MAFFEZZOLLI", "DACM EMPREENDIMENTOS LTDA"],
+        "contatos": ["4733083500", "47999990000"],
+    }]
+    alvo = exportar.escrever(linhas, tmp_path / "lote", ("importar",))["importar"]
+    assert alvo.name == "lote.importar.csv", alvo.name
+
+    with open(alvo, encoding="utf-8-sig", newline="") as fh:
+        linhas_lidas = list(_csv.reader(fh, delimiter=";"))
+
+    assert linhas_lidas[0] == ["empresa", "cnpj", "email", "cidade", "uf",
+                               "país", "nome", "telefone"]
+    r = linhas_lidas[1]
+    assert r[0] == "ESTAMPARIA CORES & TONS LTDA"
+    assert r[1] == "00074023000140"
+    assert r[5] == "BR", "o país tem de vir preenchido; a base é só do Brasil"
+    # multivalor agrupado, e NUNCA com ponto e vírgula: esse separa coluna
+    assert r[6] == "CARLOS MAFFEZZOLLI|DACM EMPREENDIMENTOS LTDA"
+    assert r[7] == "4733083500|47999990000"
+    assert ";" not in "".join(r), "ponto e vírgula dentro da célula parte a linha"
+
+
+def test_importacao_aguenta_campo_vazio_e_valor_unico(tmp_path):
+    """Empresa sem sócio e sem e-mail não pode sumir nem deslocar a coluna."""
+    import csv as _csv
+    from cnpj import exportar
+
+    linhas = [{"cnpj": "1", "razao_social": "SEM NADA", "cidade": "BRUSQUE",
+               "estado": "SC", "email": None, "socios": None,
+               "contatos": "4733083500"}]
+    alvo = exportar.escrever(linhas, tmp_path / "l", ("importar",))["importar"]
+    with open(alvo, encoding="utf-8-sig", newline="") as fh:
+        r = list(_csv.reader(fh, delimiter=";"))[1]
+    assert len(r) == 8, f"linha com {len(r)} colunas: {r}"
+    assert r[2] == "" and r[6] == ""
+    assert r[7] == "4733083500", "valor único não pode ganhar separador"
+    assert r[5] == "BR"
+
+
+def test_nome_do_arquivo_de_importacao_termina_em_csv(tmp_path, monkeypatch):
+    """
+    É um CSV com outro layout, não um formato de arquivo novo. Terminando em
+    ".importar", o Windows não sabe com o que abrir.
+    """
+    from servico import ponte
+
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    corpos = []
+
+    class Resp:
+        def read(self): return b'{"ok": true}'
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(ponte.urllib.request, "urlopen",
+                        lambda req, timeout=None: (
+                            corpos.append(json.loads(req.data.decode())), Resp())[1])
+    arq = tmp_path / "x.csv"
+    arq.write_text("a\n", encoding="utf-8")
+    ponte.guardar("p1", 1, "importar", arq, empresas=1)
+    assert corpos[0]["filename"].endswith(".importar.csv"), corpos[0]["filename"]
+    assert corpos[0]["ct"] == "text/csv"

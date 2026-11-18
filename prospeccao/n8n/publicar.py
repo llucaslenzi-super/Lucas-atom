@@ -439,7 +439,9 @@ apiwf = {
      "columns": {"mappingMode": "defineBelow", "value": {
        "pedido_id": "={{ $json.novo_id }}", "status": "pendente",
        "filtro": "={{ $json.filtro }}", "total": "={{ $json.total }}",
-       "formatos": "xlsx,csv",
+       # importar: o layout de oito colunas que entra direto na
+       # ferramenta do cliente, ao lado da planilha completa.
+       "formatos": "xlsx,csv,importar",
        "planilha_nome": "={{ $json.planilha_nome }}",
        "planilha_b64": "={{ $json.planilha_b64 }}",
        "cliente": "={{ $json.cliente }}",

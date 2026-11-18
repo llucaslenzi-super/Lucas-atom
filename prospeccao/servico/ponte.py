@@ -49,7 +49,13 @@ TIPOS = {
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "csv": "text/csv",
     "pdf": "application/pdf",
+    "importar": "text/csv",
 }
+
+# O nome do arquivo que o navegador salva. "importar" é um CSV com outro
+# layout, não um formato novo de arquivo — então termina em .csv, senão o
+# Windows não sabe com o que abrir.
+EXTENSAO = {"importar": "importar.csv"}
 
 
 class SemCredencial(RuntimeError):
@@ -255,7 +261,8 @@ def guardar(pedido_id: str, n: int, formato: str, caminho: Path,
         # caladamente parece defeito; dizer "50 repetidas" mostra que a
         # pesquisa rodou e que o filtro está esgotando.
         "repetidas": repetidas, "novas": max(0, empresas - repetidas),
-        "filename": f"prospeccao-{pedido_id}-{n:03d}.{formato}",
+        "filename": f"prospeccao-{pedido_id}-{n:03d}."
+                    f"{EXTENSAO.get(formato, formato)}",
         "ct": TIPOS.get(formato, "application/octet-stream"),
         "b64": base64.b64encode(caminho.read_bytes()).decode(),
     }

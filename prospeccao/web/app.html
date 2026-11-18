@@ -1127,10 +1127,15 @@
             h += "<div style='display:flex;gap:9px;flex-wrap:wrap;align-items:center'>";
             h += "<strong style='font-size:13px'>Lista " + (+n) + "</strong>"
                + "<span class='dica num'>" + (+arqs[0].empresas || 0) + " empresas</span>";
+            // O "importar" é a mesma lista no layout de oito colunas que
+            // entra direto na ferramenta do cliente. O rótulo diz para que
+            // serve, não qual é a extensão.
+            var ROTULO = { importar: "PARA IMPORTAR" };
             arqs.forEach(function (L) {
+              var f = String(L.formato);
               h += "<a class='b b-fantasma b-pequeno' href='" + BAIXAR
                  + encodeURIComponent(L.chave) + "'>&darr; "
-                 + esc(String(L.formato).toUpperCase()) + "</a>";
+                 + esc(ROTULO[f] || f.toUpperCase()) + "</a>";
             });
             h += "</div>";
             if (csv) {

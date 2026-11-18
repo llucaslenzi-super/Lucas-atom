@@ -98,6 +98,14 @@ SABOTAGENS += [
     ("junta de municipios volta a entrar sempre", "buscar",
      "    if any(not str(x).strip().isdigit()",
      "    if True or any(not str(x).strip().isdigit()"),
+    # O layout de importacao: cabecalho e separador erram em silencio.
+    ("importacao perde o pais fixo", "colunas",
+     'PAIS_FIXO = "BR"', 'PAIS_FIXO = ""'),
+    ("importacao separa multivalor com ponto e virgula", "colunas",
+     'SEP_IMPORTAR = "|"', 'SEP_IMPORTAR = ";"'),
+    ("importacao troca a ordem das colunas", "colunas",
+     '    ("empresa",  "razao_social"),\n    ("cnpj",     "cnpj"),',
+     '    ("cnpj",     "cnpj"),\n    ("empresa",  "razao_social"),'),
     # Cancelar para o que falta, e so o que falta.
     ("cancelar joga fora a lista ja pronta", "servico/fila",
      "WHERE pedido_id=? AND status='pendente'",

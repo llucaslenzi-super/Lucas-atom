@@ -318,6 +318,44 @@ def escrever_pdf(linhas, caminho, blocos=None):
     return caminho
 
 
+def escrever_importar(linhas, caminho) -> Path:
+    """
+    O layout de importação: oito colunas, com os nomes que a ferramenta do
+    cliente espera, e uma linha por empresa.
+
+    Multivalor agrupado na célula com barra vertical — telefone junta todos
+    os telefones, nome junta todos os nomes ligados à empresa. Ponto e
+    vírgula fica reservado para separar COLUNA, e usar o mesmo caractere nos
+    dois papéis é o jeito mais rápido de um importador partir a linha errado.
+    """
+    caminho = Path(caminho)
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+
+    def celula(l, origem):
+        if origem is None:
+            return _c.PAIS_FIXO
+        v = l.get(origem)
+        if v in (None, "", [], {}):
+            return ""
+        if isinstance(v, (list, tuple, set)):
+            vistos, saida = set(), []
+            for x in v:
+                x = str(x).strip()
+                if x and x not in vistos:
+                    vistos.add(x)
+                    saida.append(x)
+            return _c.SEP_IMPORTAR.join(saida)
+        # já veio juntado por ";" de uma exportação anterior
+        return str(v).replace(";", _c.SEP_IMPORTAR)
+
+    with open(caminho, "w", newline="", encoding="utf-8-sig") as fh:
+        w = csv.writer(fh, delimiter=";", quoting=csv.QUOTE_ALL)
+        w.writerow([nome for nome, _ in _c.IMPORTAR])
+        for l in linhas:
+            w.writerow([celula(l, origem) for _, origem in _c.IMPORTAR])
+    return caminho
+
+
 def escrever(linhas, destino, formatos=("csv",), blocos=None):
     """Gera os formatos pedidos a partir do mesmo lote. Devolve {formato: caminho}."""
     destino = Path(destino)
@@ -336,6 +374,10 @@ def escrever(linhas, destino, formatos=("csv",), blocos=None):
             escrever_xlsx(linhas, alvo, blocos)
         elif f == "pdf":
             escrever_pdf(linhas, alvo, blocos)
+        elif f == "importar":
+            # Sai com .csv no nome: é um CSV, e o cliente abre no Excel igual.
+            alvo = destino.with_suffix(".importar.csv")
+            escrever_importar(linhas, alvo)
         else:
             raise ValueError(f"formato desconhecido: {f}")
         feitos[f] = alvo
