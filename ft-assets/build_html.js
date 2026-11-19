@@ -7,8 +7,6 @@ const BASE = 'https://soultextil.app.n8n.cloud/webhook/ft-asset?name=';
 
 const p    = $('Parse Nekt').item.json;
 const fich = ($('Get Ficha').item.json) || {};
-const prod = ($('Agg Prod Cores').item.json.data) || [];
-const cat  = ($('Agg Catalogo').item.json.data) || [];
 
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function cleanNome(d){return String(d||'').replace(/#/g,'').replace(/\s+/g,' ').trim().toUpperCase();}
@@ -32,21 +30,21 @@ var sugest = [];
 try { sugest = fich.sugestoes_json ? JSON.parse(fich.sugestoes_json) : []; } catch(e){ sugest = []; }
 if (!sugest.length) { sugest = String(p.descricaoalternativa||'').split('-').map(function(s){return s.trim();}).filter(function(s){return s.length;}); }
 
-// BENEFÍCIOS (4 bullets sob SOBRE A MALHA) = cadastro (beneficios_json); não existe no ERP
+// BENEFÍCIOS = cadastro (beneficios_json) com fallback para descricaocompacta1 do ERP (split por "-")
 var benef = [];
 try { benef = fich.beneficios_json ? JSON.parse(fich.beneficios_json) : []; } catch(e){ benef = []; }
+if (!benef.length) { benef = String(p.descricaocompacta1||'').split('-').map(function(s){return s.trim();}).filter(function(s){return s.length;}); }
 
-// ---- cartela (cores) ----
-const m={}; cat.forEach(function(c){ m[String(c.codgrade)] = c; });
-// cartela: prioriza cores_json da ft_fichas (cadastro); fallback para ft_produto_cores
-var coresIds=[]; try{ coresIds = fich.cores_json ? JSON.parse(fich.cores_json) : []; }catch(e){ coresIds=[]; }
-var cores;
-if (coresIds.length){
-  cores = coresIds.map(function(cg){ var c=m[String(cg)]||{}; return {cod:cg, nome:c.nome||'', hex:c.hex||'#FFFFFF', borda:!!c.tem_borda, imagem:c.imagem||''}; });
-} else {
-  prod.sort(function(a,b){ return Number(a.ordem)-Number(b.ordem); });
-  cores = prod.map(function(pc){ var c=m[String(pc.codgrade)]||{}; return {cod:pc.codgrade, nome:c.nome||'', hex:c.hex||'#FFFFFF', borda:!!c.tem_borda, imagem:c.imagem||''}; });
-}
+// ---- cartela (cores) = ERP: produtos_grade (codcolecao<>1, ativo) + RGB de grade_produtos ----
+function rgbHex(r,g,b){ r=Number(r); g=Number(g); b=Number(b);
+  if(!(r>=0&&g>=0&&b>=0)) return '';            // -1 = nao cadastrado
+  if(r===0&&g===0&&b===0) return '';             // 0,0,0 = preto default = nao cadastrado
+  function h(n){ n=Math.max(0,Math.min(255,Math.round(n))); return ('0'+n.toString(16)).slice(-2); }
+  return '#'+h(r)+h(g)+h(b); }
+function nearWhite(hex){ if(!hex) return false; var n=parseInt(hex.slice(1),16); return ((n>>16)&255)>=245&&((n>>8)&255)>=245&&(n&255)>=245; }
+var erpCores=[]; try{ erpCores = ($('Parse Cartela').first().json.cartela)||[]; }catch(e){ erpCores=[]; }
+erpCores.sort(function(a,b){ return Number(a.sequencia)-Number(b.sequencia); });
+var cores = erpCores.map(function(c){ var hex=rgbHex(c.corrgb_r,c.corrgb_g,c.corrgb_b); return {cod:c.codgrade, nome:c.nome||'', hex:hex||'#FFFFFF', borda:(!hex||nearWhite(hex)), imagem:''}; });
 
 // ---- ícones do meio: do cadastro (icones_json) com fallback para os 5 padrão ----
 const ICON_LABELS = {easycare:'Easy Care',elasticidade:'Elasticidade',shape:'Shape',toquemacio:'Toque Macio',conforto:'Conforto'};
