@@ -27,11 +27,12 @@ titulos AS (
       WHEN 16 THEN 'CHEQUE NEGATIVADO'
       WHEN 21 THEN 'CHEQUE EM PROTESTO'
       WHEN 67 THEN 'CHEQUE DEVOLVIDO'
+      WHEN 31 THEN 'DOCUMENTO 31'
     END AS tipo_doc_nome
   FROM nekt_raw.mssql_matriz_dbo_cr_documentos cr
   CROSS JOIN params p
   WHERE cr.saldodocumento > 0
-    AND cr.tipodocumento IN (67, 6, 16, 21, 5, 10)
+    AND cr.tipodocumento IN (67, 6, 16, 21, 5, 10, 31)
     AND CAST(cr.datavencimento AS DATE) <= date_add('day', -2, p.data_execucao)
 ),
 pedidos_por_titulo AS (
