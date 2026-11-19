@@ -152,10 +152,9 @@
           <h3>Sugestões de uso</h3><div id="sugList"></div><button class="btn ghost sm" id="addSug">+ sugestão</button>
         </div>
         <div class="sec">
-          <h3>Cartela de cores <span class="muted" id="cartCount" style="text-transform:none;letter-spacing:0"></span></h3>
-          <div class="cartela" id="cartela"></div>
-          <input type="text" id="coresFilter" placeholder="filtrar cores por nome/código" style="margin-bottom:8px">
-          <div class="cores-grid" id="coresGrid"></div>
+          <h3>Cartela de cores <span class="muted" style="text-transform:none;letter-spacing:0">— vem do ERP (coleção≠1 + RGB)</span></h3>
+          <div class="cartela" id="cartelaErp"><span class="muted">—</span></div>
+          <p class="muted" style="margin-top:6px;font-size:12px">As cores da ficha vêm do ERP. No ERP, marque <b>Coleção ≠ 1</b> e preencha o <b>RGB</b> de cada cor que deve entrar na cartela.</p>
         </div>
         <div class="sec">
           <h3>Ícones do meio</h3>
@@ -278,14 +277,12 @@
     $('edTtl').textContent='Carregando...'; $('edCod').textContent='Produto '+cod; show('editor');
     $('erpGrid').innerHTML='<span class="muted">Carregando...</span>';
     Promise.all([
-      get(API+'/ft-cad/cores-produto?codproduto='+encodeURIComponent(cod)),
       get(API+'/ft-cad/read?table=ft_icones_catalogo'),
       get(API+'/ft-cad/read?table=ft_fichas'),
       get(API+'/ft-cad/produto-dados?codproduto='+encodeURIComponent(cod))
     ]).then(function(res){
-      var cr=res[0]||{}, icons=res[1]||[], fichas=res[2]||[], pd=res[3]||{};
+      var icons=res[0]||[], fichas=res[1]||[], pd=res[2]||{};
       renderErp(pd);
-      state.cores=(cr.cores||[]).map(function(c){return c;});
       state.icones=(Array.isArray(icons)?icons:[]).filter(function(i){return (i.grupo||'meio')==='meio'||i.grupo==null;}).map(function(i){i._sel=false;i._pos=0;return i;});
       var fich=(Array.isArray(fichas)?fichas:[]).filter(function(f){return String(f.codproduto)===String(cod);})[0]||{};
       state.ficha=fich;
@@ -295,14 +292,12 @@
       try{state.benef=fich.beneficios_json?JSON.parse(fich.beneficios_json):[];}catch(e){state.benef=[];}
       try{state.sug=fich.sugestoes_json?JSON.parse(fich.sugestoes_json):[];}catch(e){state.sug=[];}
       renderList($('benList'),state.benef); renderList($('sugList'),state.sug);
-      var selCores=[]; try{selCores=fich.cores_json?JSON.parse(fich.cores_json):[];}catch(e){selCores=[];}
-      state.cartela=selCores.map(String).filter(function(cg){return state.cores.some(function(x){return String(x.codgrade)===cg;});});
       var selIc=[]; try{selIc=fich.icones_json?JSON.parse(fich.icones_json):[];}catch(e){selIc=[];}
       selIc.forEach(function(it,i){var id=(typeof it==='string')?it:it.id;var ic=state.icones.filter(function(x){return x.icone_id===id;})[0];if(ic){ic._sel=true;ic._pos=i+1;}});
-      renderCartela(); renderCoresGrid(); renderIcones();
-      $('edTtl').textContent=fich.nome_exibicao||fich.codproduto? (fich.nome_exibicao||('Produto '+cod)) : ('Produto '+cod);
+      renderIcones();
+      loadCartelaErp(cod);
       $('edTtl').textContent=(fich.nome_exibicao&&fich.nome_exibicao.trim())?fich.nome_exibicao:('Produto '+cod);
-      $('edCod').textContent='Produto '+cod+' · '+(state.cores.length)+' cores disponíveis';
+      $('edCod').textContent='Produto '+cod;
       refreshPreview();
       toast('Produto carregado','ok');
     }).catch(function(){ $('edTtl').textContent='Erro'; toast('Erro ao carregar produto','bad'); });
@@ -341,50 +336,20 @@
       .catch(function(){$('f_hero_name').textContent='erro';toast('Erro no upload','bad');});
   });
 
-  // ---- cores ----
-  function corByCg(cg){return state.cores.filter(function(c){return String(c.codgrade)===String(cg);})[0];}
-  function swStyle(c){ if(!c)return 'background:#eee'; if(c.imagem)return "background-image:url('"+ASSET+encodeURIComponent(c.imagem)+"')"; if(c.tem_borda)return 'background:#fff;border:1.5px solid #000'; return 'background:'+(c.hex||'#fff'); }
-  function renderCartela(){
-    var box=$('cartela'); box.innerHTML='';
-    $('cartCount').textContent='('+state.cartela.length+'/14)';
-    state.cartela.forEach(function(cg,idx){
-      var c=corByCg(cg); if(!c)return;
-      var chip=document.createElement('div'); chip.className='chip';
-      chip.innerHTML='<div class="sw" style="'+swStyle(c)+'"></div><span class="nm" title="'+esc(c.nome)+'">'+esc(c.nome)+'</span>';
-      var up=mini('↑',function(){ if(idx>0){var t=state.cartela[idx-1];state.cartela[idx-1]=state.cartela[idx];state.cartela[idx]=t;renderCartela();} });
-      var dn=mini('↓',function(){ if(idx<state.cartela.length-1){var t=state.cartela[idx+1];state.cartela[idx+1]=state.cartela[idx];state.cartela[idx]=t;renderCartela();} });
-      var rm=mini('✕',function(){ state.cartela.splice(idx,1); renderCartela(); renderCoresGrid(); });
-      chip.appendChild(up);chip.appendChild(dn);chip.appendChild(rm);
-      box.appendChild(chip);
-    });
-    if(!state.cartela.length){ box.innerHTML='<span class="muted">Nenhuma cor na cartela ainda. Clique em uma cor abaixo para adicionar.</span>'; }
+  // ---- cartela (read-only, vem do ERP) ----
+  function loadCartelaErp(cod){
+    var box=$('cartelaErp'); box.innerHTML='<span class="muted">carregando cores do ERP...</span>';
+    get(API+'/ft-cad/cartela?codproduto='+encodeURIComponent(cod)).then(function(r){
+      var cart=(r&&r.cartela)||[]; box.innerHTML='';
+      if(!cart.length){ box.innerHTML='<span class="muted">Nenhuma cor cadastrada no ERP (coleção≠1) para este produto ainda.</span>'; return; }
+      cart.forEach(function(c){
+        var hex=c.hex||''; var style=hex?('background:'+hex):'background:#fff;border:1.5px solid #000';
+        var chip=document.createElement('div'); chip.className='chip';
+        chip.innerHTML='<div class="sw" style="'+style+'"></div><span class="nm" title="'+esc(c.nome)+'">'+esc(c.nome)+'</span>'+(hex?'':'<span class="muted" style="font-size:10px">sem RGB</span>');
+        box.appendChild(chip);
+      });
+    }).catch(function(){ box.innerHTML='<span class="muted">erro ao carregar a cartela do ERP</span>'; });
   }
-  function mini(txt,fn){var b=document.createElement('button');b.className='mini';b.textContent=txt;b.addEventListener('click',fn);return b;}
-  function renderCoresGrid(){
-    var grid=$('coresGrid'); grid.innerHTML='';
-    var filt=($('coresFilter').value||'').toLowerCase();
-    state.cores.forEach(function(c){
-      if(filt && (String(c.codgrade)+' '+String(c.nome)).toLowerCase().indexOf(filt)<0) return;
-      var inCart=state.cartela.indexOf(String(c.codgrade))>-1 || state.cartela.indexOf(c.codgrade)>-1;
-      var card=document.createElement('div'); card.className='cor-card'+(inCart?' on':'');
-      var sw=document.createElement('div'); sw.className='swatch'; sw.setAttribute('style',swStyle(c));
-      var body=document.createElement('div'); body.className='cor-body';
-      body.innerHTML='<div class="cor-name" title="'+esc(c.nome)+'">'+esc(c.nome)+'</div><div class="cor-code">cód. '+esc(c.codgrade)+'</div>';
-      var ctr=document.createElement('div'); ctr.className='cor-ctrls';
-      var add=document.createElement('button'); add.className='btn '+(inCart?'ghost':'cream')+' sm'; add.textContent=inCart?'✓ cartela':'+ cartela';
-      add.addEventListener('click',function(){ var k=String(c.codgrade); var i=state.cartela.indexOf(k); if(i>-1){state.cartela.splice(i,1);}else{ if(state.cartela.length>=14){toast('Máx. 14 cores','bad');return;} state.cartela.push(k);} renderCartela(); renderCoresGrid(); });
-      var col=document.createElement('input'); col.type='color'; col.value=/^#([0-9a-f]{6})$/i.test(c.hex||'')?c.hex:'#ffffff';
-      col.addEventListener('input',function(){c.hex=col.value;c.imagem='';sw.setAttribute('style',swStyle(c));renderCartela();});
-      var fb=document.createElement('button'); fb.className='btn ghost sm filebtn'; fb.innerHTML='📎<input type="file" accept="image/*">';
-      fb.querySelector('input').addEventListener('change',function(ev){var f=ev.target.files[0];if(!f)return;var nm='cor_'+c.codgrade+'.'+(f.type.indexOf('png')>-1?'png':'jpg');fileToB64(f).then(function(b64){return post('/ft-cad/upload-asset',{name:nm,ct:f.type,b64:b64});}).then(function(r){c.imagem=(r&&r.name)||nm;sw.setAttribute('style',swStyle(c));renderCartela();toast('Imagem enviada','ok');}).catch(function(){toast('Erro upload','bad');});});
-      var lblB=document.createElement('label'); lblB.className='chk';
-      var bchk=document.createElement('input'); bchk.type='checkbox'; bchk.checked=!!c.tem_borda; bchk.addEventListener('change',function(){c.tem_borda=bchk.checked;sw.setAttribute('style',swStyle(c));renderCartela();});
-      lblB.appendChild(bchk); lblB.appendChild(document.createTextNode('borda'));
-      ctr.appendChild(add);ctr.appendChild(col);ctr.appendChild(fb);ctr.appendChild(lblB);
-      body.appendChild(ctr); card.appendChild(sw); card.appendChild(body); grid.appendChild(card);
-    });
-  }
-  $('coresFilter').addEventListener('input', renderCoresGrid);
 
   // ---- icones ----
   function renderIcones(){
@@ -417,15 +382,13 @@
   function saveAll(){
     if(!state.cod){toast('Carregue um produto','bad');return Promise.reject();}
     $('btnSaveAll').innerHTML='<span class="spin"></span> salvando';
-    var cartColors=state.cartela.map(corByCg).filter(Boolean);
-    var colorPosts=cartColors.map(function(c){return post('/ft-cad/cores-cat',{codgrade:String(c.codgrade),nome:c.nome,hex:c.imagem?'':(c.hex||''),tem_borda:!!c.tem_borda,imagem:c.imagem||''});});
-    var ficha={codproduto:state.cod,nome_exibicao:$('f_nome').value||'',caracteristica_texto:$('f_carac').value||'',barca_override:$('f_barca').value||'',hero_asset:state.ficha.hero_asset||'',sobre_texto:$('f_sobre').value||'',beneficios_json:JSON.stringify(state.benef.filter(function(x){return x&&x.trim();})),sugestoes_json:JSON.stringify(state.sug.filter(function(x){return x&&x.trim();})),cores_json:JSON.stringify(state.cartela.map(String)),icones_json:JSON.stringify(selectedIconsOrdered().map(function(i){return {id:i.icone_id,label:i.label};}))};
-    return Promise.all(colorPosts).then(function(){return post('/ft-cad/ficha',ficha);})
+    var ficha={codproduto:state.cod,nome_exibicao:$('f_nome').value||'',caracteristica_texto:$('f_carac').value||'',barca_override:$('f_barca').value||'',hero_asset:state.ficha.hero_asset||'',sobre_texto:$('f_sobre').value||'',beneficios_json:JSON.stringify(state.benef.filter(function(x){return x&&x.trim();})),sugestoes_json:JSON.stringify(state.sug.filter(function(x){return x&&x.trim();})),icones_json:JSON.stringify(selectedIconsOrdered().map(function(i){return {id:i.icone_id,label:i.label};}))};
+    return post('/ft-cad/ficha',ficha)
       .then(function(){$('btnSaveAll').innerHTML='💾 Salvar tudo';markSaved();toast('Tudo salvo','ok');return true;})
       .catch(function(){$('btnSaveAll').innerHTML='💾 Salvar tudo';toast('Erro ao salvar','bad');throw new Error('save');});
   }
   function markSaved(){var s=$('sv-txt');s.classList.add('on');setTimeout(function(){s.classList.remove('on');},1800);}
-  function refreshPreview(){$('pdfFrame').src=API+'/ficha?codproduto='+encodeURIComponent(state.cod)+'&preview=1&t='+Date.now();}
+  function refreshPreview(){ if(!state.cod)return; var u=API+'/ficha?codproduto='+encodeURIComponent(state.cod)+'&preview=1&t='+Date.now(); $('pdfFrame').removeAttribute('src'); $('pdfFrame').srcdoc='<p style="font-family:sans-serif;padding:20px;color:#888">gerando preview...</p>'; fetch(u).then(function(r){return r.text();}).then(function(h){ $('pdfFrame').srcdoc=h; }).catch(function(){ $('pdfFrame').srcdoc='<p style="font-family:sans-serif;padding:20px;color:#b23b3b">erro ao gerar preview</p>'; }); }
   $('btnSaveAll').addEventListener('click',function(){saveAll().then(function(){refreshPreview();}).catch(function(){});});
   $('btnPreview').addEventListener('click',function(){saveAll().then(function(){refreshPreview();}).catch(function(){refreshPreview();});});
   $('btnPdf').addEventListener('click',function(){ if(!state.cod){toast('Carregue um produto','bad');return;} window.open(API+'/ficha?codproduto='+encodeURIComponent(state.cod)+'&t='+Date.now(),'_blank'); });
