@@ -328,9 +328,21 @@ class Fila:
                                 "('pendente','executando')"),
             "fatias_na_fila": q("SELECT COUNT(*) FROM fatias WHERE status='pendente'"),
             "fatias_executando": q("SELECT COUNT(*) FROM fatias WHERE status='executando'"),
+            "pausado_por": self.ler("pausado_por") or "",
+            "pausado_desde": self.ler("pausado_desde") or "",
         }
 
     def marcar(self, chave: str, valor: str):
+        # `pausado_por` ganha um carimbo de quando começou, e o carimbo só é
+        # posto na PRIMEIRA vez: o worker remarca a pausa a cada 60 s, e sem
+        # isso "pausado desde" seria sempre "agora" — inútil para saber se
+        # está parado há um minuto ou há dois dias.
+        if chave == "pausado_por":
+            if valor and not self.ler("pausado_por"):
+                self.db.execute("INSERT OR REPLACE INTO servico VALUES (?,?)",
+                                ["pausado_desde", _agora()])
+            elif not valor:
+                self.db.execute("DELETE FROM servico WHERE chave='pausado_desde'")
         self.db.execute("INSERT OR REPLACE INTO servico VALUES (?,?)", [chave, valor])
         self.db.commit()
 

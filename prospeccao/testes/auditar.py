@@ -98,6 +98,11 @@ SABOTAGENS += [
     ("junta de municipios volta a entrar sempre", "buscar",
      "    if any(not str(x).strip().isdigit()",
      "    if True or any(not str(x).strip().isdigit()"),
+    # A pausa tem de aparecer em TODO pedido parado, nao so no devolvido.
+    ("pausa some dos pedidos em curso", "servico/ponte",
+     "                          motivo=parado)", "                          )"),
+    ("pausado_desde vira sempre agora", "servico/fila",
+     'if valor and not self.ler("pausado_por"):', "if valor:"),
     # O layout de importacao: cabecalho e separador erram em silencio.
     ("importacao perde o pais fixo", "colunas",
      'PAIS_FIXO = "BR"', 'PAIS_FIXO = ""'),

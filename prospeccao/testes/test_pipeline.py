@@ -2179,3 +2179,49 @@ def test_nome_do_arquivo_de_importacao_termina_em_csv(tmp_path, monkeypatch):
     ponte.guardar("p1", 1, "importar", arq, empresas=1)
     assert corpos[0]["filename"].endswith(".importar.csv"), corpos[0]["filename"]
     assert corpos[0]["ct"] == "text/csv"
+
+
+def test_pausa_por_token_aparece_em_todo_pedido_em_curso(tmp_path, monkeypatch):
+    """
+    O caso real: a fonte de dados recusou o token, o worker devolveu a fatia
+    e ficou tentando de minuto em minuto. Na tela, só o pedido devolvido
+    mostrava o motivo — os outros diziam "na fila" como se estivesse tudo
+    bem, e a pessoa olhava uma barra parada sem saber por quê.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    r = fila.criar([f"{i + 80000000000000:014d}" for i in range(20)],
+                   filtro="t", cliente="acme", formatos=("csv",), chave_idem="90")
+
+    enviados = []
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda linha, **c: enviados.append(c))
+
+    # sem pausa, nada a dizer
+    ponte.reportar_progresso(fila)
+    assert enviados[0]["motivo"] == ""
+
+    # o worker recusa o token
+    fila.marcar("pausado_por", "token_empresaqui")
+    enviados.clear()
+    ponte.reportar_progresso(fila)
+    assert "token" in enviados[0]["motivo"].lower(), enviados[0]["motivo"]
+    assert "desde" in enviados[0]["motivo"], "sem o desde quando, não dá para agir"
+
+    # O carimbo é da PRIMEIRA vez. O worker remarca a pausa a cada 60 s, e
+    # comparar com o valor recém-gravado não prova nada — dentro do mesmo
+    # segundo os dois são iguais. Então o carimbo é envelhecido à mão.
+    fila.marcar("pausado_desde", "2020-01-01T00:00:00")
+    fila.marcar("pausado_por", "token_empresaqui")
+    assert fila.estado()["pausado_desde"] == "2020-01-01T00:00:00", (
+        "o 'desde quando' virou 'agora' na segunda tentativa; a pessoa não "
+        "consegue saber se está parado há um minuto ou há dois dias")
+
+    # token volta: o aviso some
+    fila.marcar("pausado_por", "")
+    enviados.clear()
+    ponte.reportar_progresso(fila)
+    assert enviados[0]["motivo"] == ""
+    assert fila.estado()["pausado_desde"] == ""

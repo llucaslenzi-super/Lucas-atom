@@ -57,6 +57,16 @@ TIPOS = {
 # Windows não sabe com o que abrir.
 EXTENSAO = {"importar": "importar.csv"}
 
+# A pausa dita em português, para aparecer no cartão do pedido. A chave é o
+# que o worker grava em `pausado_por`.
+MOTIVO_PAUSA = {
+    "token_empresaqui": "A fonte de dados recusou o token (HTTP 403). As "
+                        "listas continuam na fila e voltam a rodar sozinhas "
+                        "assim que o acesso for restabelecido.",
+    "token_ausente": "Falta o token da fonte de dados no servidor. As listas "
+                     "continuam na fila.",
+}
+
 
 class SemCredencial(RuntimeError):
     pass
@@ -354,12 +364,22 @@ def reportar_progresso(fila: Fila) -> int:
         "SELECT id, chave_idem FROM pedidos "
         "WHERE status IN ('pendente','executando') "
         "  AND chave_idem IS NOT NULL").fetchall()
+    # Por que o serviço está parado, se estiver. Hoje só o pedido que foi
+    # devolvido mostrava o motivo; os outros diziam "na fila" como se
+    # estivesse tudo bem, e a pessoa ficava olhando uma barra que não anda
+    # sem saber que o token da fonte foi recusado.
+    est = fila.estado()
+    parado = MOTIVO_PAUSA.get(est.get("pausado_por") or "", "")
+    if parado and est.get("pausado_desde"):
+        parado += f" (desde {est['pausado_desde'][:16].replace('T', ' ')})"
+
     enviados = 0
     for ped in emcurso:
         pr = fila.progresso(ped["id"])
         try:
             marcar_pedido(ped["chave_idem"], processadas=pr["andadas"],
-                          listas_prontas=pr["prontas"], listas=pr["listas"])
+                          listas_prontas=pr["prontas"], listas=pr["listas"],
+                          motivo=parado)
         except Exception as e:
             # n8n fora do ar ou lento: não insiste com os outros nesta volta.
             _log(f"andamento de {ped['id']} não subiu: {type(e).__name__}")

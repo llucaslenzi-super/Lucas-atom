@@ -1108,7 +1108,14 @@
       h += "<span class='dica num' style='margin-left:auto'>" + quando(p.criado_em) + "</span></div>";
       h += "<p class='dica' style='margin:8px 0 14px'>" + descreve(p)
          + " · <span class='num'>" + (p.total || 0) + "</span> empresas</p>";
-      if (p.motivo) h += "<div class='aviso aviso-erro' style='margin-top:0'>" + esc(p.motivo) + "</div>";
+      if (p.motivo) {
+        // Pedido que ainda vai rodar não está com ERRO, está esperando. Em
+        // vermelho, a pessoa acha que perdeu a lista; o que ela precisa saber
+        // é por que a barra não anda.
+        var esperando = (p.status === "pendente" || p.status === "em_curso");
+        h += "<div class='aviso " + (esperando ? "aviso-atencao" : "aviso-erro")
+           + "' style='margin-top:0'>" + esc(p.motivo) + "</div>";
+      }
 
       var ls = p.listas || [];
       if (ls.length) {
