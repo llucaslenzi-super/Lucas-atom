@@ -98,6 +98,9 @@ SABOTAGENS += [
     ("junta de municipios volta a entrar sempre", "buscar",
      "    if any(not str(x).strip().isdigit()",
      "    if True or any(not str(x).strip().isdigit()"),
+    ("pausado volta a contar como pedido terminado", "servico/ponte",
+     'EM_ANDAMENTO = ("pendente", "executando", "pausado")',
+     'EM_ANDAMENTO = ("pendente", "executando")'),
     # A pausa tem de aparecer em TODO pedido parado, nao so no devolvido.
     ("pausa some dos pedidos em curso", "servico/ponte",
      "                          motivo=parado)", "                          )"),

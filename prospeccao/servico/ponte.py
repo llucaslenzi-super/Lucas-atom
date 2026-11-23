@@ -59,6 +59,14 @@ EXTENSAO = {"importar": "importar.csv"}
 
 # A pausa dita em português, para aparecer no cartão do pedido. A chave é o
 # que o worker grava em `pausado_por`.
+# Um pedido NÃO acabou enquanto estiver num destes. `pausado` é o que me
+# pegou em produção: ele não estava na lista, então o fechamento o tratou
+# como estado final, carimbou a linha do n8n com "pausado" e marcou o pedido
+# como já fechado. Quando o token voltou e as 114 empresas saíram com os três
+# arquivos, a tela continuou dizendo "pausado" — e o conserto automático não
+# voltava nele, porque já estava carimbado.
+EM_ANDAMENTO = ("pendente", "executando", "pausado")
+
 MOTIVO_PAUSA = {
     "token_empresaqui": "A fonte de dados recusou o token (HTTP 403). As "
                         "listas continuam na fila e voltam a rodar sozinhas "
@@ -362,8 +370,8 @@ def reportar_progresso(fila: Fila) -> int:
     """
     emcurso = fila.db.execute(
         "SELECT id, chave_idem FROM pedidos "
-        "WHERE status IN ('pendente','executando') "
-        "  AND chave_idem IS NOT NULL").fetchall()
+        f"WHERE status IN ({','.join('?' * len(EM_ANDAMENTO))}) "
+        "  AND chave_idem IS NOT NULL", EM_ANDAMENTO).fetchall()
     # Por que o serviço está parado, se estiver. Hoje só o pedido que foi
     # devolvido mostrava o motivo; os outros diziam "na fila" como se
     # estivesse tudo bem, e a pessoa ficava olhando uma barra que não anda
@@ -392,8 +400,9 @@ def reportar_progresso(fila: Fila) -> int:
     # barra de um trabalho que acabou.
     for ped in fila.db.execute(
             "SELECT id, chave_idem FROM pedidos "
-            "WHERE status NOT IN ('pendente','executando') "
-            "  AND chave_idem IS NOT NULL AND fechado_em IS NULL").fetchall():
+            f"WHERE status NOT IN ({','.join('?' * len(EM_ANDAMENTO))}) "
+            "  AND chave_idem IS NOT NULL AND fechado_em IS NULL",
+            EM_ANDAMENTO).fetchall():
         try:
             fechar_pedido(fila, ped["id"], ped["chave_idem"])
         except Exception as e:
@@ -412,7 +421,7 @@ def fechar_pedido(fila: Fila, pedido_id: str, linha_n8n: str | None) -> None:
         return
     p = fila.db.execute("SELECT status, motivo FROM pedidos WHERE id=?",
                         [pedido_id]).fetchone()
-    if not p or p["status"] in ("pendente", "executando"):
+    if not p or p["status"] in EM_ANDAMENTO:
         return
     pendentes = fila.db.execute(
         "SELECT COUNT(*) c FROM fatias "

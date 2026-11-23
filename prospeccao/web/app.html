@@ -1009,6 +1009,7 @@
       em_curso: ["pil-curso", "em curso"],
       pendente: ["pil-fila", "na fila"],
     cancelando:["pil-curso", "cancelando"],
+    pausado:  ["pil-curso", "esperando"],
       parcial:  ["pil-curso", "parcial"],
       erro:     ["pil-erro", "com erro"],
       cancelado:["pil-fila", "cancelado"]
@@ -1112,7 +1113,8 @@
         // Pedido que ainda vai rodar não está com ERRO, está esperando. Em
         // vermelho, a pessoa acha que perdeu a lista; o que ela precisa saber
         // é por que a barra não anda.
-        var esperando = (p.status === "pendente" || p.status === "em_curso");
+        var esperando = (p.status === "pendente" || p.status === "em_curso"
+                         || p.status === "pausado");
         h += "<div class='aviso " + (esperando ? "aviso-atencao" : "aviso-erro")
            + "' style='margin-top:0'>" + esc(p.motivo) + "</div>";
       }
@@ -1155,7 +1157,8 @@
             h += "</div>";
           });
       }
-      if (p.status === "em_curso" || p.status === "pendente") {
+      if (p.status === "em_curso" || p.status === "pendente"
+          || p.status === "pausado") {
         h += progresso(p);
         h += "<button class='b-texto' style='padding:6px 0;font-size:13px'"
            + " data-cancelar='" + esc(p.pedido_id) + "'>Cancelar o que falta</button>";

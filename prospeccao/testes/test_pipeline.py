@@ -2225,3 +2225,57 @@ def test_pausa_por_token_aparece_em_todo_pedido_em_curso(tmp_path, monkeypatch):
     ponte.reportar_progresso(fila)
     assert enviados[0]["motivo"] == ""
     assert fila.estado()["pausado_desde"] == ""
+
+
+def test_pedido_pausado_nao_conta_como_terminado(tmp_path, monkeypatch):
+    """
+    O defeito visto em produção, com o sistema rodando.
+
+    A fonte recusou o token, o worker devolveu a fatia e a fila marcou o
+    pedido como 'pausado'. O fechamento não tinha 'pausado' na lista de
+    estados em andamento, então tratou como FINAL: carimbou a linha do n8n
+    com "pausado" e marcou o pedido como já fechado.
+
+    Quando o token voltou e as 114 empresas saíram com os três arquivos, a
+    tela continuou dizendo "pausado" — e o conserto automático não voltava
+    nele, justamente porque já estava carimbado como fechado.
+    """
+    from servico import ponte
+    from servico.fila import Fila
+    from cnpj import entregues
+
+    monkeypatch.setattr(entregues, "ARQUIVO", tmp_path / "entregues.duckdb")
+    monkeypatch.setattr(ponte, "SEGREDO", "s")
+    monkeypatch.setattr(ponte, "publicar_entregues", lambda *a, **k: None)
+    monkeypatch.setattr(ponte, "guardar", lambda *a, **k: None)
+    marcas = []
+    monkeypatch.setattr(ponte, "marcar_pedido",
+                        lambda linha, **c: marcas.append(c))
+
+    fila = Fila(tmp_path / "jobs.sqlite")
+    pid, _ = _fatia_pronta(tmp_path, fila)
+    fila.db.execute("UPDATE pedidos SET chave_idem='120', status='pausado' "
+                    "WHERE id=?", [pid])
+    fila.db.commit()
+
+    ponte.entregar(fila)
+    fechado = fila.db.execute("SELECT fechado_em FROM pedidos WHERE id=?",
+                              [pid]).fetchone()["fechado_em"]
+    assert fechado is None, (
+        "pedido pausado foi dado como terminado; quando ele voltar a rodar, "
+        "a tela nunca mais sai de 'pausado'")
+    assert not [m for m in marcas if m.get("status") == "pausado"], (
+        "mandou 'pausado' como estado final para o n8n")
+
+    # pausado continua recebendo andamento e motivo
+    marcas.clear()
+    fila.marcar("pausado_por", "token_empresaqui")
+    assert ponte.reportar_progresso(fila) == 1
+    assert "token" in marcas[0]["motivo"].lower()
+
+    # e quando termina de verdade, aí sim fecha
+    fila.db.execute("UPDATE pedidos SET status='pronto' WHERE id=?", [pid])
+    fila.db.commit()
+    marcas.clear()
+    ponte.reportar_progresso(fila)
+    assert [m for m in marcas if m.get("status") == "pronto"], marcas
